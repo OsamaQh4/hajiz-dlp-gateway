@@ -162,7 +162,13 @@ y -= 40;
 page.drawText('Student Name:', { x: MARGIN, y, size: 30, font: bold, color: hex('#a9c6c1') });
 page.drawText('Osama Alqahtani', { x: MARGIN + reg.widthOfTextAtSize('Student Name:  ', 30) + 10, y, size: 30, font: reg, color: WHITE });
 page.drawText('ID:', { x: MARGIN + 640, y, size: 30, font: bold, color: hex('#a9c6c1') });
-page.drawText('(assigned after qualification)', { x: MARGIN + 640 + 52, y, size: 30, font: oblique, color: hex('#cfe3df') });
+// Left blank on purpose - the ID is issued on qualification, so leave room to
+// write it on the printed poster.
+page.drawLine({
+  start: { x: MARGIN + 640 + 54, y: y - 6 },
+  end: { x: MARGIN + 640 + 54 + 330, y: y - 6 },
+  thickness: 2, color: hex('#7fa39d'),
+});
 
 // QR + flag + booth, top-right corner.
 const qrX = W - MARGIN - QR_SIZE;
@@ -177,10 +183,25 @@ const boxW = 250;
 const boxX = qrX - boxW - 30;
 card(boxX, qrY + 40, boxW, QR_SIZE - 40, { color: CARD });
 text('Country Flag', { x: boxX, y: qrY + QR_SIZE - 24, size: 26, font: bold, width: boxW, color: HEAD, align: 'center' });
-text('[ insert flag image ]', { x: boxX, y: qrY + 150, size: 20, font: oblique, width: boxW, color: MUTED, align: 'center' });
+
+const flagImage = await doc.embedPng(fs.readFileSync(path.join(here, 'Flag_of_Saudi_Arabia.png')));
+const flagW = boxW - 44;
+const flagH = flagW * (flagImage.height / flagImage.width);
+page.drawImage(flagImage, {
+  x: boxX + (boxW - flagW) / 2,
+  y: qrY + 40 + (QR_SIZE - 40 - 52 - flagH) / 2,
+  width: flagW,
+  height: flagH,
+});
+
+/** A ruled line to fill in by hand once the value is assigned. */
+function writeLine(x, y, w) {
+  page.drawLine({ start: { x, y }, end: { x: x + w, y }, thickness: 1.5, color: hex('#9aa8a5') });
+}
+
 card(boxX, qrY - 58, boxW, 86, { color: CARD });
 text('Booth Number', { x: boxX, y: qrY - 4, size: 26, font: bold, width: boxW, color: HEAD, align: 'center' });
-text('after qualification', { x: boxX, y: qrY - 34, size: 20, font: oblique, width: boxW, color: MUTED, align: 'center' });
+writeLine(boxX + 34, qrY - 40, boxW - 68);
 
 // ---- body grid --------------------------------------------------------------
 const BODY_TOP = H - MARGIN - 520;
