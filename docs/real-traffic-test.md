@@ -190,8 +190,13 @@ excluding the benchmark corpus, which is deliberately full of fixtures:
  172  total findings
 ```
 
-Most of those are this project's own test fixtures finding themselves, which is
-a good sign. But two are genuine specification bugs, and they will appear in
+> **Update — these were fixed after the first live run.** The same scan now
+> returns **106 findings, with `high_entropy_secret` down from 70 to 2**, and
+> the remainder are almost entirely this project's own deliberate fixtures.
+> The history is kept here because the bugs are instructive.
+
+Most of those were this project's own test fixtures finding themselves, which is
+a good sign. But two were genuine specification bugs, and they appear in
 *any* codebase:
 
 1. **`high_entropy_secret` fires on `package-lock.json`** — npm registry URLs and

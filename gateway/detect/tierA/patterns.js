@@ -77,12 +77,18 @@ export const detectors = [
     confidence: 0.85,
     priority: 80,
     // e.g.  password: hunter2   PASSWORD="s3cr3t"   the root password is Ops#2026
-    regex: /\b(?:password|passwd|pwd|secret|api[_-]?key|token)\s*(?:[:=]|\bis\b)\s*["']?([^\s"',;]{6,})["']?/gi,
+    regex: /\b(?:password|passwd|pwd|secret|api[_-]?key|token)\s*(?:[:=]|\bis\b)\s*["'`]?([^\s"'`,;)}\]]{6,})["'`]?/gi,
     group: 1,
-    // Without this, "the token is invalid" reads as a leaked credential.
     validate: (v) =>
+      // Without this, "the token is invalid" reads as a leaked credential.
       /[\d!@#$%^&*_+\-=]/.test(v) &&
-      !/^(?:invalid|expired|missing|required|correct|incorrect|unknown|undefined|rejected)$/i.test(v),
+      !/^(?:invalid|expired|missing|required|correct|incorrect|unknown|undefined|rejected)$/i.test(v) &&
+      // Code that *reads* a credential is not a credential. `apiKey:
+      // process.env.DLP_JUDGE_API_KEY` is correct practice, and flagging it
+      // makes the tool unusable on any real repository.
+      !/^[A-Za-z_$][\w$]*(?:\.[\w$]+)+$/.test(v) &&
+      !/^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(v) &&
+      !/^(?:\$\{|<|\{\{|%)/.test(v),
   },
   {
     id: 'saudi_national_id',
@@ -117,6 +123,9 @@ export const detectors = [
     confidence: 0.99,
     priority: 60,
     regex: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+    // Role addresses identify a mailbox, not a person, and appear constantly in
+    // code, licences and generated commit trailers.
+    validate: (v) => !/^(?:no-?reply|do-?not-?reply|postmaster|abuse|mailer-daemon)@/i.test(v),
   },
   {
     id: 'saudi_phone',
@@ -144,17 +153,23 @@ export const detectors = [
     cls: 'internal_host',
     confidence: 0.85,
     priority: 45,
-    regex: /\b[a-z0-9][a-z0-9-]{1,40}\.(?:corp|internal|intranet|local|lan|prod|dmz)(?:\.[a-z]{2,})?\b/gi,
+    // The trailing group is an optional real TLD, so exclude file extensions -
+    // otherwise `settings.local.json` reads as a host on the .local domain,
+    // which happens constantly in source code.
+    regex: /\b[a-z0-9][a-z0-9-]{1,40}\.(?:corp|internal|intranet|local|lan|prod|dmz)(?!\.(?:json|jsonc|js|mjs|cjs|ts|tsx|yml|yaml|toml|ini|conf|config|lock|log|md|txt|xml|env|bak|tmp|sh|ps1)\b)(?:\.[a-z]{2,})?\b/gi,
   },
   {
     id: 'high_entropy_secret',
     cls: 'secret',
     confidence: 0.6,
     priority: 30,
-    // The lookbehind keeps inline data URIs (embedded images, fonts) out of
-    // the secret detector - they are long, high-entropy, and never secrets.
+    // The lookbehinds exclude strings that are random by design but public:
+    // inline data URIs (embedded images, fonts) and subresource/lockfile
+    // integrity digests, which fill every package-lock.json.
     regex: /\b(?<!base64,)[A-Za-z0-9_\-+/=]{24,}\b/g,
-    validate: looksLikeSecret,
+    // A digest prefix is part of the matched token (`-` is in the character
+    // class), so this has to be checked on the value rather than by lookbehind.
+    validate: (v) => !/^(?:sha1|sha256|sha384|sha512|md5)-/i.test(v) && looksLikeSecret(v),
   },
 ];
 

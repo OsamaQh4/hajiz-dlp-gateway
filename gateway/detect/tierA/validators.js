@@ -78,6 +78,18 @@ export function entropy(value) {
 export function looksLikeSecret(value) {
   const s = String(value);
   if (s.length < 20) return false;
+
+  /**
+   * A secret is one long run of randomness. A slug is short words joined by
+   * separators - `claude-haiku-4-5-20251001`, `OpenAI/GPT/Gemini/Mistral`,
+   * `saif-2026-competition-entry`. Judged on the whole string both look
+   * "high entropy", which on real source code is the single largest source of
+   * false positives. So judge the longest separator-free run instead: a real
+   * key has one, a slug never does.
+   */
+  const longestRun = s.split(/[-/_.:]+/).reduce((a, b) => (b.length > a.length ? b : a), '');
+  if (longestRun.length < 16) return false;
+
   const classes =
     Number(/[a-z]/.test(s)) + Number(/[A-Z]/.test(s)) + Number(/\d/.test(s)) + Number(/[_\-+/=]/.test(s));
   if (classes < 3) return false;

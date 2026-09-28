@@ -50,9 +50,22 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
   // exactly what enforcement *would* have done - that is the whole point of a
   // monitor rollout - but the request itself is forwarded untouched.
   if (isObserve()) {
+    // Report the spans that *would* have been substituted. Without these the
+    // dashboard shows a count and no evidence, which defeats the point of a
+    // monitor deployment - you cannot tune a policy against a number.
+    const wouldTokenize = decision.toTokenize.concat(decision.blocked).map((f) => ({
+      token: null,
+      cls: f.cls,
+      detector: f.detector,
+      tier: f.tier,
+      confidence: f.confidence,
+      rationale: f.rationale,
+      original: joined.slice(f.start, f.end),
+    }));
+
     await finish({
       requestId, sessionId, group, adapter, action: decision.action, decision, timings, judge: judgeInfo,
-      started, joined, sanitized: null, mappings: [],
+      started, joined, sanitized: null, mappings: wouldTokenize,
       extra: { skipReason: result.tierBSkipReason, observed: true, wouldHave: decision.action },
     });
 

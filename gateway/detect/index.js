@@ -112,6 +112,12 @@ const shift = (f, by) => ({ ...f, start: f.start + by, end: f.end + by });
  */
 export function shouldRunTierB(text, tierAFindings, policy) {
   const cfg = policy?.tier_b ?? {};
+  // An explicit off switch. Setting DLP_JUDGE_PROVIDER to an empty string does
+  // not disable the judge - it falls back to the default provider, which then
+  // fails confusingly against whatever base URL is left over.
+  if (/^(0|false|off|no)$/i.test(process.env.DLP_TIER_B ?? '')) {
+    return { run: false, reason: 'tier B disabled by DLP_TIER_B' };
+  }
   if (cfg.enabled === false) return { run: false, reason: 'tier_b disabled by policy' };
 
   if (!text.trim()) return { run: false, reason: 'no new text - every message was already judged' };
