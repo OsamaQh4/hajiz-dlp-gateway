@@ -21,6 +21,19 @@ export const config = {
    */
   upstreamMode: process.env.DLP_UPSTREAM_MODE || 'live',
 
+  /**
+   * enforce - act on the decision: pseudonymize, escalate, block.
+   * observe  - detect, score, log and dashboard everything, but forward the
+   *            request completely unmodified.
+   *
+   * Real DLP deployments never start in enforcement. They run in monitor mode
+   * first, so a security team can see what their people are actually sending
+   * before anything is blocked or rewritten. It is also the only safe way to
+   * point a live coding agent at this gateway: nothing it sends gets altered,
+   * so the agent cannot be corrupted by a substitution we got wrong.
+   */
+  mode: process.env.DLP_MODE || 'enforce',
+
   upstream: {
     anthropic: process.env.DLP_ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
     openai: process.env.DLP_OPENAI_BASE_URL || 'https://api.openai.com',
@@ -75,7 +88,9 @@ export const config = {
 };
 
 export const UPSTREAM_MODES = ['live', 'mock'];
+export const MODES = ['enforce', 'observe'];
 export const isMock = () => config.upstreamMode === 'mock';
+export const isObserve = () => config.mode === 'observe';
 
 /** Hostnames that can only resolve inside the organization's own network. */
 function isInTenantHost(hostname) {
@@ -122,6 +137,14 @@ export function judgeResidency() {
 
 /** @returns {string|null} a human-readable problem, or null if the config is usable */
 export function validateConfig() {
+  if (!MODES.includes(config.mode)) {
+    return (
+      `DLP_MODE is "${config.mode}", which is not a mode.\n` +
+      `  Valid values: ${MODES.join(', ')}.\n` +
+      '  "enforce" acts on decisions; "observe" detects and logs but forwards\n' +
+      '  every request untouched.'
+    );
+  }
   if (!UPSTREAM_MODES.includes(config.upstreamMode)) {
     return (
       `DLP_UPSTREAM_MODE is "${config.upstreamMode}", which is not a mode.\n` +

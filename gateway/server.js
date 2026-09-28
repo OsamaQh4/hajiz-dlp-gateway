@@ -48,8 +48,15 @@ const server = http.createServer(async (req, res) => {
       }
       if (url.pathname === '/api/audit/verify') return sendJson(res, 200, await verifyChain());
       if (url.pathname === '/health') return sendJson(res, 200, { ok: true, mode: config.upstreamMode });
+      // Provider API paths are proxied; everything else is the dashboard.
+      if (/^\/v\d+\//.test(url.pathname)) return await passthrough(req, res, url);
       return serveStatic(url.pathname, res);
     }
+
+    // Anything the gateway does not inspect is proxied straight through.
+    // A real client calls more than the one endpoint we care about - token
+    // counting, model listing, OAuth - and 404ing those breaks it outright.
+    if (/^\/v\d+\//.test(url.pathname)) return await passthrough(req, res, url);
 
     return sendJson(res, 404, { error: { message: `no route for ${req.method} ${url.pathname}` } });
   } catch (err) {
@@ -57,9 +64,53 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+/**
+ * Transparent proxy for endpoints the gateway does not inspect. Method, path,
+ * query, headers and body are preserved; the response is streamed back byte
+ * for byte. Recorded on the dashboard so nothing crosses the perimeter
+ * silently, even when it is not inspected.
+ */
+async function passthrough(req, res, url) {
+  const target = `${config.upstream.anthropic}${url.pathname}${url.search}`;
+  const headers = {};
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (['host', 'content-length', 'connection', 'accept-encoding'].includes(k)) continue;
+    headers[k] = Array.isArray(v) ? v.join(', ') : v;
+  }
+  if (!headers['x-api-key'] && !headers.authorization && process.env.ANTHROPIC_API_KEY) {
+    headers['x-api-key'] = process.env.ANTHROPIC_API_KEY;
+  }
+
+  const hasBody = !['GET', 'HEAD'].includes(req.method);
+  const body = hasBody ? await readBody(req) : undefined;
+
+  let upstream;
+  try {
+    upstream = await fetch(target, { method: req.method, headers, body: body || undefined });
+  } catch (err) {
+    bus.publish({ kind: 'passthrough', method: req.method, path: url.pathname, status: 'error', message: err.message });
+    return sendJson(res, 502, { error: { message: `gateway could not reach upstream: ${err.message}` } });
+  }
+
+  bus.publish({ kind: 'passthrough', method: req.method, path: url.pathname, status: upstream.status });
+
+  res.writeHead(upstream.status, {
+    'content-type': upstream.headers.get('content-type') || 'application/octet-stream',
+  });
+  if (!upstream.body) return res.end();
+  const reader = upstream.body.getReader();
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    res.write(Buffer.from(value));
+  }
+  return res.end();
+}
+
 function state() {
   return {
     mode: config.upstreamMode,
+    enforcement: config.mode,
     judge: {
       provider: config.judge.provider,
       model: config.judge.model,
@@ -158,6 +209,7 @@ server.listen(config.port, () => {
   console.log(`  judge       ${config.judge.provider}:${config.judge.model} (effort ${config.judge.effort})`);
   console.log(`  residency   ${jr.residency} — ${jr.host}${jr.standIn ? '  [STAND-IN: a hosted model is impersonating an on-prem one]' : ''}`);
   console.log(`  upstream    ${isMock() ? 'MOCK - no network calls' : config.upstream.anthropic}`);
+  console.log(`  mode        ${config.mode}${config.mode === 'observe' ? '  (detect and log only - nothing is altered or blocked)' : ''}`);
   if (jr.residency === 'external' && config.judge.provider === 'local' && !config.judge.apiKey) {
     console.warn('  ⚠ judge  the judge host is remote but DLP_JUDGE_API_KEY is not set — every call will fail auth');
   }

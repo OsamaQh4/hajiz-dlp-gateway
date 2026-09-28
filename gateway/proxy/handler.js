@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
-import { config, isMock } from '../config.js';
-import { detect } from '../detect/index.js';
+import { config, isMock, isObserve } from '../config.js';
+import { detect, SEP } from '../detect/index.js';
 import { decide, getPolicy, watchlistFor } from '../policy/policy.js';
 import { vault } from '../vault/vault.js';
 import { bus, metrics } from '../lib/events.js';
@@ -8,7 +8,6 @@ import { append, summarize } from '../audit/audit.js';
 import { SSEParser, serialize } from './sse.js';
 
 /** Separator used to judge every segment of a request in a single pass. */
-const SEP = '\n␞\n';
 
 export const pendingApprovals = new Map();
 
@@ -39,12 +38,37 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
   const { text: joined, ranges } = joinSegments(segments);
 
   const policy = getPolicy();
-  const result = await detect(joined, { policy, watchlist: watchlistFor(group) });
+  const result = await detect(segments.map((s) => s.text), { policy, watchlist: watchlistFor(group) });
   const decision = decide(result.findings, { group, judgeDegraded: result.judgeDegraded });
 
   const timings = { tierAMs: result.tierAMs, tierBMs: result.tierBMs, tierBRan: result.tierBRan };
   const judgeInfo = { model: result.judgeModel, degraded: result.judgeDegraded, error: result.judgeError };
   warnOnJudgeFailure(result);
+
+  // ---- observe mode: watch, record, change nothing -------------------------
+  // The decision is computed in full so the dashboard and audit log show
+  // exactly what enforcement *would* have done - that is the whole point of a
+  // monitor rollout - but the request itself is forwarded untouched.
+  if (isObserve()) {
+    await finish({
+      requestId, sessionId, group, adapter, action: decision.action, decision, timings, judge: judgeInfo,
+      started, joined, sanitized: null, mappings: [],
+      extra: { skipReason: result.tierBSkipReason, observed: true, wouldHave: decision.action },
+    });
+
+    if (isMock()) {
+      return body.stream === true
+        ? sendMockStream(res, adapter, body, joined, vault.streamRehydrator(sessionId))
+        : sendJson(res, 200, adapter.mockReply(body, joined));
+    }
+    if (!hasCredential(adapter, req)) return missingCredential(res, adapter, requestId, decision);
+    try {
+      return await relay({ adapter, req, res, body });
+    } catch (err) {
+      bus.publish({ kind: 'upstream_error', requestId, message: err.message });
+      return sendJson(res, 502, { error: { message: `gateway could not reach ${adapter.name}: ${err.message}`, type: 'upstream_error' } });
+    }
+  }
 
   // ---- blocked -------------------------------------------------------------
   if (decision.action === 'block') {
@@ -121,20 +145,7 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
       : sendJson(res, 200, adapter.rehydrateResponse(adapter.mockReply(body, sanitized), rehydrate));
   }
 
-  if (!hasCredential(adapter, req)) {
-    // Fail here with something actionable rather than relaying the provider's
-    // bare "x-api-key header is required", which says nothing about the gateway.
-    return sendJson(res, 401, {
-      error: {
-        type: 'authentication_error',
-        message:
-          `The gateway is in live mode but has no ${adapter.name} credential. ` +
-          'Either give the client one, set ANTHROPIC_API_KEY / OPENAI_API_KEY for the gateway, ' +
-          'or run with DLP_UPSTREAM_MODE=mock to demo the full pipeline with no network.',
-      },
-      dlp: { requestId, inspected: true, action, findings: decision.perFinding.length },
-    });
-  }
+  if (!hasCredential(adapter, req)) return missingCredential(res, adapter, requestId, decision);
 
   try {
     const upstream = await forward({ adapter, req, body });
@@ -254,6 +265,38 @@ function warnOnJudgeFailure({ judgeDegraded, judgeError }) {
   if (judgeError === lastJudgeError) return;
   lastJudgeError = judgeError;
   console.warn(`\n  ⚠ semantic judge unavailable — falling back to degraded cues\n    ${judgeError}\n`);
+}
+
+/**
+ * Fail with something actionable rather than relaying the provider's bare
+ * "x-api-key header is required", which says nothing about which layer failed.
+ */
+function missingCredential(res, adapter, requestId, decision) {
+  return sendJson(res, 401, {
+    error: {
+      type: 'authentication_error',
+      message:
+        `The gateway is in live mode but has no ${adapter.name} credential. ` +
+        'Either give the client one, set ANTHROPIC_API_KEY / OPENAI_API_KEY for the gateway, ' +
+        'or run with DLP_UPSTREAM_MODE=mock to demo the full pipeline with no network.',
+    },
+    dlp: { requestId, inspected: true, findings: decision?.perFinding.length ?? 0 },
+  });
+}
+
+/** Forward a request and stream the reply back verbatim - no rewriting at all. */
+async function relay({ adapter, req, res, body }) {
+  const upstream = await forward({ adapter, req, body });
+  const headers = { 'content-type': upstream.headers.get('content-type') || 'application/json' };
+  res.writeHead(upstream.status, headers);
+  if (!upstream.body) return res.end();
+  const reader = upstream.body.getReader();
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    res.write(Buffer.from(value));
+  }
+  return res.end();
 }
 
 function hasCredential(adapter, req) {
