@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hajiz — AI DLP Gateway</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="mark">⬢</span>
+        <div>
+          <h1>Hajiz</h1>
+          <p>AI data-loss prevention gateway</p>
+        </div>
+      </div>
+      <div class="status" id="status">
+        <span class="dot" id="conn-dot"></span>
+        <span id="conn-text">connecting…</span>
+      </div>
+    </header>
+
+    <section class="tiles" id="tiles"></section>
+
+    <div id="escalations"></div>
+
+    <main class="layout">
+      <aside class="feed">
+        <h2>Live traffic</h2>
+        <ul id="feed-list"></ul>
+        <p class="empty" id="feed-empty">Nothing yet. Send a prompt through the gateway.</p>
+      </aside>
+
+      <section class="detail" id="detail">
+        <div class="placeholder">
+          <h2>Select a request</h2>
+          <p>
+            Each row shows one prompt on its way to a frontier model: what the employee
+            typed, what actually left the network, and why.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span id="footer-policy"></span>
+      <span id="footer-judge"></span>
+      <span id="footer-mode"></span>
+      <button id="verify-btn" type="button">Verify audit chain</button>
+      <span id="verify-result"></span>
+    </footer>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

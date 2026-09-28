@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 660" width="1040" height="660" font-family="Segoe UI, system-ui, sans-serif">
+  <style>
+    :root { color-scheme: light dark; }
+    .bg   { fill: #ffffff; }
+    .card { fill: #f7f9fb; stroke: #d6dee6; }
+    .gw   { fill: #eef4fb; stroke: #4ea1ff; }
+    .step { fill: #ffffff; stroke: #c6d3e0; }
+    .t    { fill: #16202b; }
+    .m    { fill: #5f7285; }
+    .accent { fill: #1f6fd0; }
+    .bad  { fill: #c0392b; }
+    .ok   { fill: #1e8f63; }
+    .flow { stroke: #8aa0b5; fill: none; }
+    .mono { font-family: ui-monospace, Consolas, monospace; }
+    @media (prefers-color-scheme: dark) {
+      .bg   { fill: #0b0f14; }
+      .card { fill: #121820; stroke: #22303d; }
+      .gw   { fill: #101a26; stroke: #4ea1ff; }
+      .step { fill: #172029; stroke: #22303d; }
+      .t    { fill: #dbe5ef; }
+      .m    { fill: #7f93a6; }
+      .accent { fill: #4ea1ff; }
+      .bad  { fill: #ff5f6d; }
+      .ok   { fill: #3ecf8e; }
+      .flow { stroke: #3c5468; }
+    }
+  </style>
+
+  <rect class="bg" width="1040" height="660" />
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8aa0b5" />
+    </marker>
+  </defs>
+
+  <text class="t" x="40" y="42" font-size="21" font-weight="600">AI-powered DLP gateway — request path</text>
+  <text class="m" x="40" y="64" font-size="13">Everything inside the dashed boundary runs on the organization's own infrastructure.</text>
+
+  <!-- tenant boundary -->
+  <rect x="28" y="84" width="700" height="500" rx="14" fill="none" stroke="#8aa0b5" stroke-dasharray="6 5" />
+  <text class="m mono" x="44" y="106" font-size="11">ORGANIZATION TENANT · IN-KINGDOM</text>
+
+  <!-- employee -->
+  <rect class="card" x="48" y="126" width="150" height="86" rx="10" />
+  <text class="t" x="64" y="152" font-size="14" font-weight="600">Employee VDI</text>
+  <text class="m" x="64" y="172" font-size="11.5">claude.ai · ChatGPT</text>
+  <text class="m" x="64" y="189" font-size="11.5">IDE plugins · internal</text>
+  <text class="m" x="64" y="206" font-size="11.5">apps calling the API</text>
+
+  <path class="flow" d="M198 169 H 246" marker-end="url(#arrow)" />
+
+  <!-- gateway -->
+  <rect class="gw" x="246" y="126" width="458" height="438" rx="12" stroke-width="1.6" />
+  <text class="accent" x="266" y="150" font-size="14" font-weight="700">DLP GATEWAY</text>
+  <text class="m" x="266" y="167" font-size="11">container / virtual appliance</text>
+
+  <!-- 1 intercept -->
+  <rect class="step" x="266" y="180" width="418" height="60" rx="9" />
+  <text class="t" x="282" y="202" font-size="13" font-weight="600">1 · Intercept</text>
+  <text class="m" x="282" y="221" font-size="11.5">TLS-inspecting proxy, or API-gateway mode. Per-provider adapters</text>
+  <text class="m" x="282" y="235" font-size="11.5">pull the real prompt and file uploads out of each vendor's JSON.</text>
+
+  <!-- 2 detect -->
+  <rect class="step" x="266" y="252" width="418" height="122" rx="9" />
+  <text class="t" x="282" y="274" font-size="13" font-weight="600">2 · Detect — two tiers</text>
+
+  <rect x="282" y="286" width="190" height="72" rx="7" fill="none" stroke="#1e8f63" />
+  <text class="ok mono" x="294" y="304" font-size="11" font-weight="700">TIER A · ~0.02 ms</text>
+  <text class="m" x="294" y="321" font-size="11">regex + checksums: national ID,</text>
+  <text class="m" x="294" y="335" font-size="11">IBAN, card, keys, hosts, and the</text>
+  <text class="m" x="294" y="349" font-size="11">org's own codename watchlist</text>
+
+  <rect x="484" y="286" width="186" height="72" rx="7" fill="none" stroke="#1f6fd0" />
+  <text class="accent mono" x="496" y="304" font-size="11" font-weight="700">TIER B · LLM JUDGE</text>
+  <text class="m" x="496" y="321" font-size="11">semantic leakage regex can</text>
+  <text class="m" x="496" y="335" font-size="11">never see. Runs on ~a third of</text>
+  <text class="m" x="496" y="349" font-size="11">prompts. On-prem or hosted.</text>
+
+  <!-- 3 policy -->
+  <rect class="step" x="266" y="386" width="418" height="60" rx="9" />
+  <text class="t" x="282" y="408" font-size="13" font-weight="600">3 · Policy engine</text>
+  <text class="m mono" x="282" y="428" font-size="11.5">allow · pseudonymize · escalate to a human · block</text>
+
+  <!-- 4 vault -->
+  <rect class="step" x="266" y="458" width="200" height="90" rx="9" />
+  <text class="t" x="282" y="480" font-size="13" font-weight="600">4 · Token vault</text>
+  <text class="m" x="282" y="499" font-size="11">stable placeholders per session,</text>
+  <text class="m" x="282" y="513" font-size="11">AES-256-GCM, never leaves</text>
+  <text class="m" x="282" y="527" font-size="11">the tenant</text>
+
+  <rect class="step" x="484" y="458" width="200" height="90" rx="9" />
+  <text class="t" x="500" y="480" font-size="13" font-weight="600">5 · Audit log</text>
+  <text class="m" x="500" y="499" font-size="11">hash-chained, tamper-evident,</text>
+  <text class="m" x="500" y="513" font-size="11">records classes and decisions —</text>
+  <text class="m" x="500" y="527" font-size="11">never the values themselves</text>
+
+  <!-- provider -->
+  <path class="flow" d="M704 300 H 790" marker-end="url(#arrow)" />
+  <text class="m mono" x="712" y="292" font-size="10">sanitized</text>
+
+  <rect class="card" x="790" y="240" width="196" height="120" rx="10" />
+  <text class="t" x="808" y="268" font-size="14" font-weight="600">Frontier model</text>
+  <text class="m" x="808" y="290" font-size="11.5">Claude · ChatGPT · Gemini</text>
+  <text class="m" x="808" y="312" font-size="11.5">Sees only placeholders.</text>
+  <text class="m" x="808" y="330" font-size="11.5">Reasons about them</text>
+  <text class="m" x="808" y="346" font-size="11.5">exactly as well.</text>
+
+  <path class="flow" d="M790 392 H 704" marker-end="url(#arrow)" />
+  <text class="m mono" x="716" y="384" font-size="10">reply</text>
+  <path class="flow" d="M888 360 V 392" marker-end="url(#arrow)" />
+
+  <!-- rehydrate callout -->
+  <rect class="step" x="740" y="410" width="260" height="86" rx="9" />
+  <text class="t" x="756" y="432" font-size="13" font-weight="600">6 · Rehydrate</text>
+  <text class="m" x="756" y="451" font-size="11">Placeholders are swapped back to</text>
+  <text class="m" x="756" y="465" font-size="11">real values before the employee</text>
+  <text class="m" x="756" y="479" font-size="11">sees the answer — streaming too.</text>
+
+  <!-- worked example -->
+  <text class="t" x="40" y="616" font-size="12.5" font-weight="600">What the model actually receives:</text>
+  <text class="bad mono" x="40" y="638" font-size="12">"Ahmed Al-Otaibi (1098765439) reports Project Falcon fails auth"</text>
+  <path class="flow" d="M470 634 H 516" marker-end="url(#arrow)" />
+  <text class="ok mono" x="524" y="638" font-size="12">"PERSON_1 (ID_1) reports PROJECT_1 fails auth"</text>
+</svg>

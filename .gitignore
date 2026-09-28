@@ -1,0 +1,6 @@
+node_modules/
+data/
+.env
+*.log
+scripts/demo-env.ps1
+docs/template/

@@ -1,0 +1,22 @@
+{
+  "name": "hajiz-dlp-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI-powered DLP gateway: inspects prompts and files on their way to frontier LLMs, pseudonymizes sensitive data reversibly, and rehydrates the response.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node gateway/server.js",
+    "test": "node --test \"test/**/*.test.js\"",
+    "bench": "node bench/run.js",
+    "demo": "node scripts/demo-client.js",
+    "doctor": "node scripts/doctor.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "js-yaml": "^5.4.2",
+    "zod": "^4.6.5"
+  }
+}

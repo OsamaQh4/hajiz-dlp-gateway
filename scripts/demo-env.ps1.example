@@ -1,0 +1,27 @@
+# Copy to scripts/demo-env.ps1, put your real key in, then dot-source it in every
+# terminal you use:
+#
+#   . .\scripts\demo-env.ps1
+#
+# The leading dot matters. Running it without it sets the variables in a child
+# process that exits immediately, which is the single easiest way to spend an
+# hour wondering why the judge returns 401.
+#
+# scripts/demo-env.ps1 is gitignored. Do not commit a key.
+
+# --- upstream: mock needs no network and no Anthropic key -------------------
+$env:DLP_UPSTREAM_MODE = "mock"
+
+# --- judge: an open model standing in for the on-prem one -------------------
+$env:DLP_JUDGE_PROVIDER = "local"
+$env:DLP_JUDGE_BASE_URL = "https://openrouter.ai/api/v1"
+$env:DLP_JUDGE_MODEL    = "google/gemma-4-26b-a4b-it:free"
+$env:DLP_JUDGE_API_KEY  = "sk-or-v1-PUT-YOUR-REAL-KEY-HERE"
+
+# --- for the real on-prem judge, use these instead ---------------------------
+# $env:DLP_JUDGE_PROVIDER = "local"
+# $env:DLP_JUDGE_BASE_URL = "http://llm.internal:8000/v1"
+# $env:DLP_JUDGE_MODEL    = "google/gemma-4-26b-a4b-it"
+# $env:DLP_JUDGE_API_KEY  = ""
+
+Write-Host "DLP environment set. Verify with: npm run doctor" -ForegroundColor Green

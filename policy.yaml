@@ -1,0 +1,82 @@
+# Hajiz DLP gateway - organization policy.
+# Edited by the security team, hot-reloaded by the gateway. This file is the
+# whole control surface: one page a CISO can actually read.
+
+version: 1
+name: Default enterprise policy
+
+# What happens when a class of sensitive data is found in an outbound prompt.
+#   allow         - let it through untouched
+#   pseudonymize  - replace with a stable placeholder, restore it in the answer
+#   escalate      - hold the prompt until a human reviewer approves it
+#   block         - refuse, and tell the employee why
+actions:
+  secret: block
+  credentials: block
+
+  national_id: pseudonymize
+  iban: pseudonymize
+  card: pseudonymize
+  email: pseudonymize
+  phone: pseudonymize
+  internal_host: pseudonymize
+  person: pseudonymize
+  org: pseudonymize
+  project: pseudonymize
+  financial: pseudonymize
+  source_code: pseudonymize
+  location: pseudonymize
+  other: pseudonymize
+
+  health: escalate
+  legal: escalate
+  strategic: escalate
+
+  # Substituting a vulnerability description would defeat the employee's whole
+  # purpose - they are usually asking for help fixing it. Replacing it with
+  # VULN_1 leaves the model nothing to work with, so a person decides instead.
+  vulnerability: escalate
+
+default_action: pseudonymize
+
+# When the semantic judge runs. Keeping it off short, structured prompts is
+# what keeps median latency in single-digit milliseconds.
+tier_b:
+  enabled: true
+  always: false
+  min_chars: 80
+  min_words: 12
+  skip_on_hard_block: true
+
+thresholds:
+  # Judge findings below this are dropped as noise.
+  judge_min_confidence: 0.5
+  # Judge findings below this are sent to a human rather than acted on silently.
+  escalate_below: 0.75
+  # Models often return a whole sentence instead of the sensitive value inside
+  # it. Substituting a span that long would replace the prompt's meaning with a
+  # placeholder and leave the model nothing to work with - which is the very
+  # failure this product exists to avoid. Anything longer goes to a human.
+  max_pseudonymize_span_chars: 120
+
+# If the judge is unreachable: warn (proceed on Tier A alone, flagged),
+# block (fail closed), or allow (fail open, silent - not recommended).
+on_judge_error: warn
+
+# Terms only this organization knows are sensitive. Deterministic, zero-latency,
+# and the reason Tier A catches codenames no vendor's model has ever seen.
+watchlist:
+  - Project Falcon
+  - Saned
+  - NEOM-Tower-B
+  - AlUla Retail Pilot
+
+# Per-group overrides, selected with the x-dlp-group request header.
+groups:
+  engineering:
+    actions:
+      source_code: pseudonymize
+      internal_host: allow
+  legal:
+    actions:
+      legal: block
