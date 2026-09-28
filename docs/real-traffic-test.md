@@ -52,6 +52,35 @@ which is entertaining but tells you nothing. Use something unrelated and boring.
 
 ---
 
+## Prerequisites
+
+The test needs a **command-line** Claude Code, separate from the desktop app.
+The desktop app bundles its own copy and does not put `claude` on PATH, and you
+do not want to route the session you are working in through the gateway you are
+testing — a bug there takes out the tool you would use to fix it.
+
+```powershell
+npm install -g @anthropic-ai/claude-code
+```
+
+Open a new terminal afterwards so PATH refreshes, then confirm:
+
+```powershell
+claude --version
+```
+
+**For Phase 3 (WSL)** you also need Node inside the distro. A bare Ubuntu will
+appear to have `npm` because WSL inherits the Windows PATH, but `node` is
+missing — the Windows install ships an extensionless `npm` script and a
+`node.exe`, and only the former resolves. Install a real one:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+exec bash
+nvm install --lts
+npm install -g @anthropic-ai/claude-code
+```
+
 ## Phase 1 — native Windows, Tier A only
 
 Start simple. This proves the plumbing with the fewest moving parts.
