@@ -18,5 +18,10 @@
     "@anthropic-ai/sdk": "^0.128.0",
     "js-yaml": "^5.4.2",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
+    "pdf-lib": "^1.17.1",
+    "qrcode": "^1.5.4"
   }
 }
