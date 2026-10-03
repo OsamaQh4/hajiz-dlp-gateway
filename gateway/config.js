@@ -65,6 +65,16 @@ export const config = {
     retries: int(process.env.DLP_JUDGE_RETRIES, 2),
   },
 
+  /**
+   * The decision-model judge. Reached through OpenRouter's decisions endpoint,
+   * or point it at a local Kev server, which serves the same contract.
+   */
+  jev: {
+    endpoint: process.env.DLP_JEV_ENDPOINT || 'https://openrouter.ai/api/alpha/decisions',
+    model: process.env.DLP_JEV_MODEL || 'typesafe/jev-1.13',
+    apiKey: process.env.DLP_JUDGE_API_KEY || process.env.OPENROUTER_API_KEY,
+  },
+
   vault: {
     // Session mappings live in memory; persistence is AES-256-GCM encrypted.
     persist: bool(process.env.DLP_VAULT_PERSIST, false),

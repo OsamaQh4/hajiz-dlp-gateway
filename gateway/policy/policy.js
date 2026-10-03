@@ -92,6 +92,14 @@ export function decide(findings, { group, judgeDegraded = false } = {}) {
     if (action === 'pseudonymize' && f.tier === 'B' && f.confidence < escalateBelow) {
       action = 'escalate';
     }
+    // Pseudonymization protects identifiers, not facts. Masking the
+    // counterparty in "we are acquiring Saned next quarter, not yet public"
+    // leaves the deal in plain sight - measured at 96% residual leakage. A
+    // semantic finding is a fact, so it goes to a person instead.
+    if (action === 'pseudonymize' && f.semantic) {
+      action = 'escalate';
+      reasons.push(`${f.cls} is a disclosed fact, not an identifier - substitution would not protect it`);
+    }
     // An over-broad span would gut the prompt rather than sanitize it. Hand it
     // to a person instead of silently destroying what the employee asked.
     if (action === 'pseudonymize' && f.tier === 'B' && f.end - f.start > maxSpan) {

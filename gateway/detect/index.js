@@ -1,6 +1,8 @@
 import { scanTierA, resolveOverlaps } from './tierA/index.js';
 import { judge } from './tierB/judge.js';
+import { judgeWithJev } from './tierB/jev.js';
 import * as cache from './tierB/cache.js';
+import { config } from '../config.js';
 
 /** Separator between segments; also what the caller uses to join them. */
 export const SEP = '\n␞\n';
@@ -29,6 +31,43 @@ export async function detect(segments, { policy, watchlist, signal } = {}) {
   for (const s of list) {
     offsets.push(at);
     at += s.length + SEP.length;
+  }
+
+  // The decision-model path is a different shape: it adjudicates Tier A's own
+  // low-confidence hits as well as finding semantic leaks, so it returns the
+  // whole finding set rather than something to merge.
+  if (config.judge.provider === 'jev') {
+    const decision = shouldRunTierB(joined, tierA, policy);
+    if (!decision.run) {
+      return {
+        findings: tierA, tierAMs, tierBMs: null, tierBRan: false,
+        tierBSkipReason: decision.reason, judgeDegraded: false, judgeError: null,
+        cache: cache.stats(), reusedFindings: 0,
+      };
+    }
+    const started = performance.now();
+    const result = await judgeWithJev(joined, tierA, { policy, signal });
+    const tierBMs = performance.now() - started;
+    const trusted = tierA.filter((f) => !result.suppressed.some((s) => s.start === f.start && s.end === f.end));
+    const kept = result.degraded
+      ? tierA
+      : resolveOverlaps([...trusted.filter((f) => !result.findings.some((r) => r.start === f.start && r.end === f.end)), ...result.findings]);
+
+    return {
+      findings: kept,
+      tierAMs,
+      tierBMs,
+      tierBRan: true,
+      tierBSkipReason: null,
+      judgeDegraded: result.degraded,
+      judgeError: result.error,
+      judgeModel: result.model,
+      gate: result.gate,
+      severity: result.severity,
+      suppressed: result.suppressed.length,
+      cache: cache.stats(),
+      reusedFindings: 0,
+    };
   }
 
   // Split into what we already know and what still needs a model.
