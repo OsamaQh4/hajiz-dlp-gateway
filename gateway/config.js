@@ -126,9 +126,15 @@ function isInTenantHost(hostname) {
  *
  * @returns {{residency:'in-tenant'|'external', host:string, standIn:boolean}}
  */
+/** The model actually doing the judging, whichever provider is selected. */
+export const judgeModel = () => (config.judge.provider === 'jev' ? config.jev.model : config.judge.model);
+
 export function judgeResidency() {
   const { provider, baseUrl } = config.judge;
-  const effective = baseUrl || (provider === 'local' ? 'http://localhost:11434/v1' : 'https://api.anthropic.com');
+  const effective =
+    provider === 'jev'
+      ? config.jev.endpoint
+      : baseUrl || (provider === 'local' ? 'http://localhost:11434/v1' : 'https://api.anthropic.com');
   let host = effective;
   try {
     host = new URL(effective).hostname;
@@ -141,7 +147,9 @@ export function judgeResidency() {
     host,
     // provider=local means "an OpenAI-compatible server I run"; if that server
     // is reachable on the public internet, it is a stand-in, not the real thing.
-    standIn: provider === 'local' && !inTenant,
+    // provider=local means "a server I run"; jev is hosted by definition, so it
+    // is only a stand-in for an on-prem Kev if someone claims otherwise.
+    standIn: (provider === 'local' || provider === 'jev') && !inTenant,
   };
 }
 

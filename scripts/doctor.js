@@ -7,7 +7,7 @@
  * actually holds, what the config resolved to, and what the judge endpoint says
  * when you call it for real.
  */
-import { config, judgeResidency, UPSTREAM_MODES } from '../gateway/config.js';
+import { config, judgeResidency, judgeModel, UPSTREAM_MODES } from '../gateway/config.js';
 import { getPolicy, policyStatus } from '../gateway/policy/policy.js';
 
 const GREEN = '\x1b[32m';
@@ -67,7 +67,7 @@ console.log('\n  Resolved configuration\n  ' + '-'.repeat(60));
 const jr = judgeResidency();
 console.log(`  upstream mode              ${config.upstreamMode}`);
 console.log(`  judge provider             ${config.judge.provider}`);
-console.log(`  judge model                ${config.judge.model}`);
+console.log(`  judge model                ${judgeModel()}`);
 console.log(`  judge base url             ${config.judge.baseUrl ?? '(provider default)'}`);
 console.log(`  judge credential           ${mask(config.judge.apiKey) ?? `${RED}none${OFF}`}`);
 console.log(`  judge residency            ${jr.residency} — ${jr.host}${jr.standIn ? `  ${YELLOW}[STAND-IN]${OFF}` : ''}`);

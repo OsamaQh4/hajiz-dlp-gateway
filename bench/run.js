@@ -14,11 +14,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { scanTierA } from '../gateway/detect/tierA/index.js';
-import { judge } from '../gateway/detect/tierB/judge.js';
+import { detect } from '../gateway/detect/index.js';
+import * as judgeCache from '../gateway/detect/tierB/cache.js';
 import { getPolicy } from '../gateway/policy/policy.js';
 import { percentiles } from '../gateway/lib/events.js';
-import { config, judgeResidency } from '../gateway/config.js';
+import { config, judgeResidency, judgeModel } from '../gateway/config.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const corpus = JSON.parse(fs.readFileSync(path.join(here, 'corpus.json'), 'utf8'));
@@ -43,6 +43,11 @@ const overlaps = (a, b) => a.start < b.end && b.start < a.end;
 
 async function score() {
   const scoreStarted = performance.now();
+  // Each run must pay for its own judging, or runs 2 and 3 would be served
+  // entirely from cache and the variance measurement would be meaningless.
+  judgeCache.clear();
+  // Tier B is a property of the run, not of the policy file.
+  const scoringPolicy = { ...getPolicy(), tier_b: { ...(getPolicy().tier_b ?? {}), enabled: withJudge } };
   let tp = 0;
   let fp = 0;
   let fn = 0;
@@ -69,11 +74,13 @@ async function score() {
   let judgeCalls = 0;
   let judgeDegraded = 0;
   let judgeSpans = 0;
+  let suppressed = 0;
+  const spanWidths = [];
   const judgeErrors = new Set();
 
   if (withJudge) {
     const jr = judgeResidency();
-    console.log(`\n  judge: ${config.judge.provider}:${config.judge.model} — ${jr.residency} (${jr.host})`);
+    console.log(`\n  judge: ${config.judge.provider}:${judgeModel()} — ${jr.residency} (${jr.host})`);
   }
 
   // When sampling a subset, keep leak and benign prompts in balance so the
@@ -105,25 +112,28 @@ async function score() {
         return { ...e, start, end: start + e.text.length };
       });
 
-    const t0 = performance.now();
-    let found = scanTierA(sample.text, { watchlist });
-    const tierAMs = performance.now() - t0;
-    latencies.push(tierAMs);
+    // Score through the real pipeline, so every judge provider is measured on
+    // the same path the gateway actually runs - not on a shortcut that happens
+    // to suit one of them.
+    const result = await detect([sample.text], { policy: scoringPolicy, watchlist });
+    let found = result.findings;
+    latencies.push(result.tierAMs);
 
     let sampleDegraded = false;
     if (withJudge) {
-      const t1 = performance.now();
-      const res = await judge(sample.text);
-      judgeLatencies.push(performance.now() - t1);
-      judgeCalls += 1;
-      if (res.degraded) {
+      judgeLatencies.push(result.tierBMs ?? 0);
+      if (result.tierBRan) judgeCalls += 1;
+      if (result.judgeDegraded) {
         judgeDegraded += 1;
         sampleDegraded = true;
-        if (res.error) judgeErrors.add(res.error);
+        if (result.judgeError) judgeErrors.add(result.judgeError);
       } else {
-        judgeSpans += res.findings.length;
+        judgeSpans += found.filter((f) => f.tier === 'B').length;
       }
-      found = [...found, ...res.findings.filter((f) => f.confidence >= 0.5)];
+      suppressed += result.suppressed ?? 0;
+      for (const f of found) {
+        if (f.tier === 'B') spanWidths.push(f.end - f.start);
+      }
     }
 
     // When the judge falls back, the spans come from keyword cues. Scoring
@@ -177,7 +187,7 @@ async function score() {
 
   return {
     tp, fp, fn, benignFp, byTier, notMeasured, latencies, judgeLatencies,
-    misses, falseAlarms, judgeCalls, judgeDegraded, judgeSpans, judgeErrors, samples,
+    misses, falseAlarms, judgeCalls, judgeDegraded, judgeSpans, judgeErrors, samples, suppressed, spanWidths,
     caught, alarms, expectedKeys,
     elapsedMs: performance.now() - scoreStarted,
   };
@@ -253,6 +263,22 @@ async function main() {
     const jl = percentiles(judgeLatencies);
     console.log(`  tier B latency     p50 ${jl.p50} ms · p95 ${jl.p95} ms · max ${jl.max} ms`);
     console.log(`  judge calls        ${judgeCalls} (${judgeDegraded} degraded, ${judgeSpans} spans returned)`);
+    // A judge that returns whole sentences overlaps more expectations than one
+    // returning tight spans, so span-level scoring flatters it. Report the
+    // width so that advantage is visible rather than silent.
+    const widths = results.flatMap((r) => r.spanWidths ?? []);
+    if (widths.length) {
+      const mean = widths.reduce((a, b) => a + b, 0) / widths.length;
+      console.log(
+        `  tier B span width  mean ${mean.toFixed(0)} chars · max ${Math.max(...widths)}` +
+          (mean > 80 ? '   (wide - overlap scoring favours this)' : ''),
+      );
+    }
+    const totalSuppressed = results.reduce((a, r) => a + (r.suppressed ?? 0), 0);
+    if (totalSuppressed) {
+      console.log(`  tier A suppressed  ${totalSuppressed} low-confidence hits overruled by the judge`);
+    }
+
     const perRun = results.map((r) => r.elapsedMs);
     const avg = perRun.reduce((a, b) => a + b, 0) / perRun.length / 1000;
     console.log(

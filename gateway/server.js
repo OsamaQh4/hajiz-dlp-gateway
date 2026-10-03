@@ -1,7 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { config, ROOT, isMock, validateConfig, judgeResidency } from './config.js';
+import { config, ROOT, isMock, validateConfig, judgeResidency, judgeModel } from './config.js';
 import { adapterForPath } from './proxy/adapters.js';
 import { handleProxy, resolveEscalation, sendJson, pendingApprovals } from './proxy/handler.js';
 import { bus, metrics } from './lib/events.js';
@@ -113,7 +113,7 @@ function state() {
     enforcement: config.mode,
     judge: {
       provider: config.judge.provider,
-      model: config.judge.model,
+      model: judgeModel(),
       effort: config.judge.effort,
       ...judgeResidency(),
     },
@@ -206,7 +206,7 @@ server.listen(config.port, () => {
   console.log(`  endpoints   POST /v1/messages   POST /v1/chat/completions`);
   console.log(`  policy      ${p.name} (v${p.version})`);
   const jr = judgeResidency();
-  console.log(`  judge       ${config.judge.provider}:${config.judge.model} (effort ${config.judge.effort})`);
+  console.log(`  judge       ${config.judge.provider}:${judgeModel()} (effort ${config.judge.effort})`);
   console.log(`  residency   ${jr.residency} — ${jr.host}${jr.standIn ? '  [STAND-IN: a hosted model is impersonating an on-prem one]' : ''}`);
   console.log(`  upstream    ${isMock() ? 'MOCK - no network calls' : config.upstream.anthropic}`);
   console.log(`  mode        ${config.mode}${config.mode === 'observe' ? '  (detect and log only - nothing is altered or blocked)' : ''}`);
