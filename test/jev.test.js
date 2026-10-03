@@ -65,7 +65,7 @@ test('short fragments are not sent as sentences', () => {
   assert.equal(parts.length, 1);
 });
 
-test('one question per sentence, plus the gate and severity', async () => {
+test('two questions per sentence, plus the gate and severity', async () => {
   respond = () => ({});
   await judgeWithJev(TEXT, [], { policy: POLICY });
 
@@ -73,6 +73,7 @@ test('one question per sentence, plus the gate and severity', async () => {
   assert.ok(keys.includes('gate'));
   assert.ok(keys.includes('severity'));
   assert.equal(keys.filter((k) => k.startsWith('sent_')).length, 3);
+  assert.equal(keys.filter((k) => k.startsWith('hot_')).length, 3, 'each sentence is gated before it is classified');
   assert.equal(lastRequest.model, 'fake-jev');
   assert.equal(lastRequest.state.prompt, TEXT);
 });
@@ -89,6 +90,7 @@ test('a classified sentence becomes a locatable finding, flagged semantic', asyn
   respond = () => ({
     gate: { noul: 0.97 },
     severity: { score: 3.1, confidence: 0.9 },
+    hot_1: { noul: 0.96 },
     sent_1: { choice: 'strategic', confidence: 0.96 },
   });
 
@@ -105,16 +107,35 @@ test('a classified sentence becomes a locatable finding, flagged semantic', asyn
 
 test('sentences answered none, or below the confidence floor, are dropped', async () => {
   respond = () => ({
-    sent_0: { choice: 'none', confidence: 0.99 },
-    sent_1: { choice: 'strategic', confidence: 0.2 },
-    sent_2: { choice: 'none', confidence: 0.95 },
+    hot_0: { noul: 0.9 }, sent_0: { choice: 'none', confidence: 0.99 },
+    hot_1: { noul: 0.9 }, sent_1: { choice: 'strategic', confidence: 0.2 },
+    hot_2: { noul: 0.9 }, sent_2: { choice: 'none', confidence: 0.95 },
   });
   const r = await judgeWithJev(TEXT, [], { policy: POLICY });
   assert.equal(r.findings.length, 0);
 });
 
+test('a cold sentence is not promoted by its classification', async () => {
+  // The regression that cost 26.7% clean-prompt false positives: asked only
+  // "which class is this", a Choice over twelve sensitive options will pick one
+  // for an entirely benign sentence. The gate has to be able to veto that.
+  respond = () => ({
+    hot_1: { noul: 0.05 },
+    sent_1: { choice: 'strategic', confidence: 0.99 },
+  });
+  const r = await judgeWithJev(TEXT, [], { policy: POLICY });
+  assert.equal(r.findings.length, 0, 'classification must not override a cold gate');
+});
+
+test('a finding is never more confident than its gate', async () => {
+  respond = () => ({ hot_1: { noul: 0.7 }, sent_1: { choice: 'strategic', confidence: 0.99 } });
+  const r = await judgeWithJev(TEXT, [], { policy: POLICY });
+  assert.equal(r.findings.length, 1);
+  assert.equal(r.findings[0].confidence, 0.7);
+});
+
 test('a class the taxonomy does not define is not invented into a finding', async () => {
-  respond = () => ({ sent_1: { choice: 'definitely_not_a_class', confidence: 0.99 } });
+  respond = () => ({ hot_1: { noul: 0.95 }, sent_1: { choice: 'definitely_not_a_class', confidence: 0.99 } });
   const r = await judgeWithJev(TEXT, [], { policy: POLICY });
   assert.equal(r.findings.length, 0);
 });

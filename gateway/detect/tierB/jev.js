@@ -102,9 +102,31 @@ export async function judgeWithJev(text, tierA = [], { policy, signal } = {}) {
     },
   };
 
+  /**
+   * Two questions per sentence, not one.
+   *
+   * A single Choice over twelve sensitive classes plus `none` asks the model to
+   * find a category, and it obliges: offered twelve plausible options against
+   * one escape hatch, benign prompts get labelled. Measured on the corpus that
+   * put clean-prompt false positives at 26.7%, against 0% for the generative
+   * judge, and it flagged the mosaic control case that scored 10% when asked as
+   * a yes/no.
+   *
+   * So gate first with the criteria that actually tested well, and only let
+   * classification run as a second question. Fan-out makes the extra question
+   * free.
+   */
   sents.forEach((s, i) => {
+    questions[`hot_${i}`] = {
+      type: 'noul',
+      instructions: `This sentence reveals something about the organization that is not already public: "${clip(s.text)}"`,
+      criteria: {
+        true: 'It reveals an identified person or customer, an internal project or codename, undisclosed financials, a planned change such as redundancies or an acquisition, a security weakness, or a credential. A place, facility, product or system counts only when the sentence also reveals something non-public about it.',
+        false: 'Routine correspondence, a general question, or a technical request. It mentions people, places, products or systems without revealing anything non-public about them. Naming a facility, product or technology on its own is not sensitive.',
+      },
+    };
     questions[`sent_${i}`] = choice(
-      `Which kind of non-public information does this sentence reveal? "${clip(s.text)}"`,
+      `If that sentence does reveal something non-public, which kind is it? "${clip(s.text)}"`,
       TAXONOMY,
     );
   });
@@ -134,10 +156,17 @@ export async function judgeWithJev(text, tierA = [], { policy, signal } = {}) {
   const findings = [];
   const suppressed = [];
 
+  const hotFloor = policy?.thresholds?.sentence_hot_above ?? 0.6;
+
   sents.forEach((s, i) => {
+    // The gate decides whether the sentence is sensitive at all; the Choice
+    // only names what kind. Classification never promotes a cold sentence.
+    const hot = num(answers[`hot_${i}`]?.noul, 0);
+    if (hot < hotFloor) return;
+
     const a = answers[`sent_${i}`];
     const cls = a?.choice;
-    const confidence = num(a?.confidence, 0);
+    const confidence = Math.min(hot, num(a?.confidence, 0));
     if (!cls || cls === 'none' || !TAXONOMY[cls] || confidence < minConfidence) return;
     findings.push({
       start: s.start,

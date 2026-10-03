@@ -142,7 +142,12 @@ async function score() {
     const measuresJudge = (tier) => tier !== 'B' || !sampleDegraded;
     const bucketFor = (f) => (f.detector === 'heuristic' ? 'H' : (f.tier ?? 'A'));
 
+    // One finding may legitimately cover several expectations - a sentence
+    // containing three financial figures protects all three when policy acts
+    // on it. Exclusive matching counted the other two as misses, which
+    // penalised wide spans rather than flattering them.
     const matchedFound = new Set();
+    void matchedFound;
     for (const exp of expected) {
       const key = `${sample.id} · ${exp.text}`;
       expectedKeys.add(key);
@@ -158,9 +163,8 @@ async function score() {
             : (f) => overlaps(f, exp);
         if (found.some(credit)) caught.add(key);
       }
-      const hit = found.find((f, i) => !matchedFound.has(i) && overlaps(f, exp) && f.cls === exp.cls);
+      const hit = found.find((f) => overlaps(f, exp) && f.cls === exp.cls);
       if (hit) {
-        matchedFound.add(found.indexOf(hit));
         tp += 1;
         if (measuresJudge(exp.tier)) byTier[exp.tier].tp += 1;
         else notMeasured += 1;
