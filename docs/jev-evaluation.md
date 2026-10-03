@@ -280,6 +280,24 @@ An earlier framing that presented the span separately from its context
 Feeding the prompt directly, as one state, was both more accurate and three
 times faster. Jev wants the document, not a fragment plus a pointer.
 
+### Test 4 — PASSED
+
+Benign control, v2 criteria: an ordinary code-review prompt with nothing
+sensitive in it.
+
+| | p(yes) | Latency | Cost |
+|---|---|---|---|
+| "Review this function for off-by-one errors…" | **2.0%** | 867 ms | $0.00002 |
+
+For contrast, the same class of content — ordinary source code — produced
+**seven false positives and a would-be block** from Tier A on captured Claude
+Code traffic. The semantic layer is not merely as good as the pattern layer on
+clean code; it is dramatically better, because it is reading meaning rather than
+shape.
+
+Caveat: this is a short, clean snippet. It is not 22 KB of real agent traffic
+with a system prompt wrapped around it. Test 7 still matters.
+
 ### Remaining
 
 | Test | Expected | p(yes) | Latency | Cost | Verdict |
