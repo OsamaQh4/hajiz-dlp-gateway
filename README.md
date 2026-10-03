@@ -250,11 +250,43 @@ are scored separately, because they are separate claims.
 | false positives on clean prompts | 0 of 14 |
 | latency | p50 0.02 ms · p95 1.2 ms |
 
-**Tier B — semantic judge** (`google/gemma-4-26b-a4b-it`, 3 runs, 99 calls, 0 degraded)
+**Tier B — two judges, same corpus, same harness, 3 runs each**
+
+The semantic tier is pluggable, and two very different models were measured
+under identical conditions: a generative judge that writes spans, and a
+*decision* model that only ever chooses among options it is given.
+
+| | Gemma 4 26B (generative) | Jev 1.13 (decision) |
+|---|---|---|
+| precision / recall (span level) | 91.7% / **100%** | 90.9% / 90.9% |
+| precision / recall (strict class) | 90.3% / 84.8% | 88.9% / 72.7% |
+| recall variance across 3 runs | 81.8% – 90.9% | **flat** |
+| false positives on 15 clean prompts | 0 | 0 |
+| latency p50 / p95 | 952 ms / 2965 ms | **407 ms / 510 ms** |
+| span width (mean) | 32 chars | 96 chars |
+
+Neither dominates. Gemma finds more; Jev is 2.3x faster at the median, 5.8x at
+p95, and returns **the same findings every run** - `spans returned 14 – 14`
+against Gemma's 12–13 and a recall that swung nine points between runs. For an
+auditable control, "these specific things, every time" is a different claim from
+"82–91% depending on the run".
+
+The structural difference shows in span width. A generative judge returns
+phrases, which can be substituted. A decision model picks whole sentences,
+which can only be escalated - so policy routes semantic findings to a human
+rather than pseudonymizing them, because substituting a fact does not protect
+it anyway.
+
+Jev cannot hallucinate a span: its options are sentences we split and spans
+Tier A already located, so a fabricated finding is not filtered out afterwards,
+it is inexpressible. Its confidence is calibrated rather than self-reported,
+which is what the policy thresholds branch on.
+
+**Detail below is the generative judge** (`google/gemma-4-26b-a4b-it`, 3 runs, 99 calls, 0 degraded)
 
 | | |
 |---|---|
-| precision / recall (span level) | 91.7% / **100.0%** over 11 expectations |
+| precision / recall (span level) | 91.7% / 100.0% over 11 expectations |
 | precision / recall (strict class) | 90.0% / 81.8% |
 | false positives on clean prompts | 0 of 15 |
 | stability | 30 of 30 expectations found in **every** run; identical findings all 3 runs |
