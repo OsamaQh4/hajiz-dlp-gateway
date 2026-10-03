@@ -50,46 +50,61 @@ const GATE = {
   },
 };
 
-/** One Choice per span Tier A already located. Options are classes, plus `none`. */
+/**
+ * One Choice per span Tier A already located. Options are classes, plus `none`.
+ *
+ * The instruction asks which class the span belongs to *for the purpose of
+ * protecting it*, not what kind of thing it is. The first run conflated those:
+ * asked to "classify" the span "Q3", the model answered `financial` at 0.99 -
+ * correctly, because a quarter label IS financial in kind. It simply is not
+ * sensitive on its own. Every option now carries the sensitivity bar, and
+ * `none` describes what a non-sensitive span looks like rather than just
+ * negating.
+ */
 const classify = (span, options) => ({
   type: 'choice',
-  instructions: `Classify the span "${span}" as it is used in this prompt.`,
-  criteria: { ...options, none: 'Not sensitive in this context.' },
+  instructions:
+    `Substituting the span "${span}" with a placeholder would protect which kind of non-public information? ` +
+    'Choose none if replacing it would protect nothing.',
+  criteria: {
+    ...options,
+    none: 'A generic word, label, period, or common technical term that identifies nothing specific and reveals nothing non-public on its own. Replacing it would protect nothing.',
+  },
 });
 
 const QUESTIONS = {
   gate: GATE,
 
   cls_id: classify('1098765439', {
-    personal_identifier: 'A government or account identifier belonging to a person.',
-    financial: 'An undisclosed financial figure.',
-    infrastructure: 'A host, address or internal system.',
+    personal_identifier: 'A specific government or account identifier belonging to an identifiable person.',
+    financial: 'A specific undisclosed figure, result or amount. A bare period label such as a quarter or a year is not financial.',
+    infrastructure: 'A specific internal host, address or system name. A generic technical word is not.',
   }),
   cls_email: classify('a.alotaibi@example.com.sa', {
-    contact_detail: 'Contact details identifying a person.',
-    personal_identifier: 'A government or account identifier.',
+    contact_detail: 'Contact details identifying a specific person.',
+    personal_identifier: 'A specific government or account identifier.',
   }),
   cls_host: classify('auth-01.corp.internal', {
-    infrastructure: 'An internal host, address or system name.',
-    project: 'An internal project or product name.',
+    infrastructure: 'A specific internal host, address or system name.',
+    project: 'A specific internal project, codename or unreleased product name.',
   }),
   cls_falcon: classify('Project Falcon', {
-    project: 'An internal project, codename or unreleased product.',
-    infrastructure: 'An internal host or system.',
+    project: 'A specific internal project, codename or unreleased product name.',
+    infrastructure: 'A specific internal host or system name.',
   }),
   cls_saned: classify('Saned', {
-    strategic: 'A party to an undisclosed deal, acquisition or negotiation.',
-    project: 'An internal project or product name.',
+    strategic: 'A specific party to an undisclosed deal, acquisition or negotiation.',
+    project: 'A specific internal project, codename or unreleased product name.',
   }),
 
   // Deliberate distractors. Both should come back `none`.
   cls_q3: classify('Q3', {
-    financial: 'An undisclosed financial figure or result.',
-    strategic: 'An undisclosed plan or deal.',
+    financial: 'A specific undisclosed figure, result or amount. A bare period label such as a quarter or a year is not financial.',
+    strategic: 'A specific undisclosed plan, deal or counterparty.',
   }),
   cls_auth: classify('auth', {
-    infrastructure: 'An internal host or system name.',
-    vulnerability: 'An undisclosed security weakness.',
+    infrastructure: 'A specific internal host, address or system name. A generic technical word is not.',
+    vulnerability: 'A specific undisclosed security weakness.',
   }),
 
   // Semantic leakage no regex would ever nominate as a candidate.
@@ -208,10 +223,14 @@ async function main() {
 
   let baselineMs = null;
   if (arg('only') !== 'full') {
+    // The first call pays for connection setup, which made the one-question
+    // baseline look slower than the eleven-question call. Warm up first so the
+    // comparison measures the model rather than the TCP handshake.
+    await call({ gate: GATE }, 'warm-up');
     const base = await call({ gate: GATE }, 'baseline (1 question)');
     if (!base.ok) process.exit(1);
     baselineMs = base.ms;
-    console.log(`\n  baseline : 1 question  -> ${base.ms} ms`);
+    console.log(`\n  baseline : 1 question  -> ${base.ms} ms  (after warm-up)`);
   }
 
   const full = await call(QUESTIONS, 'full (11 questions)');
