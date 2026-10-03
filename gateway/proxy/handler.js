@@ -129,14 +129,16 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
 
   // ---- pseudonymize --------------------------------------------------------
   const mappings = [];
+  const ambiguous = [];
   for (const range of ranges) {
     const local = decision.toTokenize
       .filter((f) => f.start >= range.start && f.end <= range.end)
       .map((f) => ({ ...f, start: f.start - range.start, end: f.end - range.start }));
     if (!local.length) continue;
-    const { text, mappings: m } = vault.tokenize(sessionId, range.segment.text, local);
+    const { text, mappings: m, ambiguousAliases } = vault.tokenize(sessionId, range.segment.text, local);
     range.segment.set(text);
     mappings.push(...m);
+    if (ambiguousAliases?.length) ambiguous.push(...ambiguousAliases);
   }
 
   const sanitized = segments.map((s) => s.text).join(SEP);
@@ -145,7 +147,12 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
   await finish({
     requestId, sessionId, group, adapter, action, decision, timings, judge: judgeInfo,
     started, joined, sanitized, mappings, escalated, reviewMs,
-    extra: { skipReason: result.tierBSkipReason },
+    extra: {
+      skipReason: result.tierBSkipReason,
+      // A name we could not attribute to one entity is still in the prompt.
+      // Surface it rather than letting an unresolved identity disappear.
+      ambiguousAliases: ambiguous.length ? ambiguous.map((a) => a.alias) : undefined,
+    },
   });
 
   // ---- forward -------------------------------------------------------------

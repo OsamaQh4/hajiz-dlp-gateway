@@ -75,6 +75,70 @@ test('unknown placeholders pass through untouched', () => {
   assert.equal(vault.rehydrate('s1', 'see PERSON_9 and ORG_4'), 'see PERSON_9 and ORG_4');
 });
 
+test('a second mention of the same person does not escape', () => {
+  // The defect: findings carry exact spans, so "Ahmed Al-Otaibi" was
+  // substituted and a later bare "Al-Otaibi" went out in the clear. Invisible
+  // for 71 tests because every fixture mentioned a name exactly once.
+  const vault = new Vault();
+  const text = 'Ahmed Al-Otaibi reported it. Al-Otaibi says it began today, and Ahmed is waiting.';
+  const findings = [{ start: 0, end: 15, cls: 'person', detector: 'judge', confidence: 0.95, tier: 'B' }];
+
+  const { text: out, mappings } = vault.tokenize('s1', text, findings);
+  assert.ok(!/Al-Otaibi/.test(out), 'the surname must not survive');
+  assert.ok(!/\bAhmed\b/.test(out), 'the given name must not survive');
+  assert.equal(mappings[0].aliasesSubstituted, 2);
+});
+
+test('a generic part of a name never becomes an alias', () => {
+  const vault = new Vault();
+  const text = 'Project Falcon is late. The project is late because the team is small.';
+  const findings = [{ start: 0, end: 14, cls: 'project', detector: 'watchlist', confidence: 1, tier: 'A' }];
+
+  const { text: out } = vault.tokenize('s1', text, findings);
+  assert.match(out, /The project is late/, 'the common word must be left alone');
+  assert.ok(!/Falcon/.test(out));
+});
+
+test('an ambiguous alias is reported rather than guessed', () => {
+  // Two people, one surname. Substituting would merge two identities, which is
+  // a different kind of wrong from leaking - so it is handed on, not resolved.
+  const vault = new Vault();
+  const text = 'Ahmed Al-Otaibi and Sara Al-Otaibi met. Al-Otaibi signed the form.';
+  const findings = [
+    { start: 0, end: 15, cls: 'person', detector: 'judge', confidence: 0.95, tier: 'B' },
+    { start: 20, end: 34, cls: 'person', detector: 'judge', confidence: 0.95, tier: 'B' },
+  ];
+
+  const { text: out, ambiguousAliases } = vault.tokenize('s1', text, findings);
+  assert.match(out, /Al-Otaibi signed/, 'the ambiguous mention is left in place');
+  const surname = ambiguousAliases.find((a) => a.alias === 'Al-Otaibi');
+  assert.ok(surname, 'the ambiguity must be reported');
+  assert.equal(surname.candidates.length, 2);
+});
+
+test('atomic values are not aliased', () => {
+  // An email address has no shorter form; splitting one would be nonsense.
+  const vault = new Vault();
+  const text = 'Write to a.alotaibi@example.com.sa about it.';
+  const { text: out, mappings } = vault.tokenize('s1', text, findingsFor(text));
+  assert.equal(mappings[0].aliasesSubstituted, undefined);
+  assert.match(out, /EMAIL_\d+/);
+});
+
+test('alias expansion does not disturb placeholders already in place', () => {
+  const vault = new Vault();
+  const text = 'Ahmed Al-Otaibi emailed a@b.sa. Al-Otaibi called too.';
+  const findings = [
+    { start: 0, end: 15, cls: 'person', detector: 'judge', confidence: 0.95, tier: 'B' },
+    ...findingsFor(text).filter((f) => f.cls === 'email'),
+  ];
+
+  const { text: out } = vault.tokenize('s1', text, findings);
+  assert.match(out, /EMAIL_\d+/, 'the email placeholder survives the second pass');
+  assert.ok(!/Al-Otaibi/.test(out));
+  assert.equal((out.match(/PERSON_1/g) ?? []).length, 2);
+});
+
 test('a placeholder the model reformatted is still restored', () => {
   // Models do not always echo a placeholder verbatim. A missed match is not a
   // leak - it is worse in a different way: the employee is shown `person_1`

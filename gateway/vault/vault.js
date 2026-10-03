@@ -97,6 +97,31 @@ export class Vault {
   }
 
   /**
+   * Classes whose values are entities people refer to again by a shorter name.
+   * An email address or a card number has no second form; a person does.
+   */
+  static ALIASABLE = new Set(['person', 'org', 'project', 'location']);
+
+  /** Parts that identify nothing on their own and must never become aliases. */
+  static GENERIC_PART = new Set([
+    'project', 'the', 'mr', 'mrs', 'ms', 'dr', 'prof', 'inc', 'ltd', 'llc', 'co', 'company',
+    'corp', 'group', 'team', 'centre', 'center', 'office', 'department', 'system', 'platform',
+  ]);
+
+  /**
+   * Shorter forms of a value that would refer to the same entity.
+   * "Ahmed Al-Otaibi" -> Ahmed, Al-Otaibi.  "Project Falcon" -> Falcon.
+   * Only proper-noun-looking parts qualify, so "the project is late" is safe.
+   */
+  static aliasesOf(value) {
+    const parts = String(value).split(/[\s,]+/).filter(Boolean);
+    if (parts.length < 2) return [];
+    return parts.filter(
+      (p) => p.length >= 3 && /^\p{Lu}/u.test(p) && !Vault.GENERIC_PART.has(p.toLowerCase().replace(/[^\p{L}]/gu, '')),
+    );
+  }
+
+  /**
    * Replace every finding in `text` with a placeholder.
    * @returns {{text:string, mappings:Array<{token:string,cls:string,detector:string,confidence:number,original:string}>}}
    */
@@ -118,7 +143,52 @@ export class Vault {
         rationale: f.rationale,
       });
     }
-    return { text: out, mappings };
+    return this.#expandAliases(out, mappings);
+  }
+
+  /**
+   * Second pass: catch the mentions the first pass could not see.
+   *
+   * Findings carry exact spans, so substituting "Ahmed Al-Otaibi" left a later
+   * bare "Al-Otaibi" untouched and the customer's name went out in the clear.
+   * It was invisible for 71 tests because every fixture mentioned a name once.
+   *
+   * An alias is only substituted when it resolves to exactly one entity. When
+   * two people in the same prompt share a surname the alias is genuinely
+   * ambiguous, and guessing would merge two identities - so it is reported for
+   * a judge to adjudicate rather than silently resolved.
+   */
+  #expandAliases(text, mappings) {
+    const byAlias = new Map();
+    for (const m of mappings) {
+      if (!Vault.ALIASABLE.has(m.cls)) continue;
+      for (const alias of Vault.aliasesOf(m.original)) {
+        if (!byAlias.has(alias)) byAlias.set(alias, new Set());
+        byAlias.get(alias).add(m.token);
+      }
+    }
+
+    let out = text;
+    const ambiguous = [];
+    for (const [alias, tokens] of byAlias) {
+      if (tokens.size > 1) {
+        ambiguous.push({ alias, candidates: [...tokens] });
+        continue;
+      }
+      const token = [...tokens][0];
+      const re = new RegExp(`(?<![\\p{L}\\p{N}_-])${escapeRe(alias)}(?![\\p{L}\\p{N}_-])`, 'gu');
+      let replaced = 0;
+      out = out.replace(re, () => {
+        replaced += 1;
+        return token;
+      });
+      if (replaced) {
+        const m = mappings.find((x) => x.token === token);
+        if (m) m.aliasesSubstituted = (m.aliasesSubstituted ?? 0) + replaced;
+      }
+    }
+
+    return { text: out, mappings, ambiguousAliases: ambiguous };
   }
 
   /** Swap placeholders back to real values in a complete string. */
@@ -214,5 +284,7 @@ export class StreamRehydrator {
     return this.vault.rehydrate(this.sessionId, rest);
   }
 }
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[]\]/g, '\export const vault = new Vault();');
 
 export const vault = new Vault();
