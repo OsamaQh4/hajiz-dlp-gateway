@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { config, isMock, isObserve } from '../config.js';
 import { detect, SEP } from '../detect/index.js';
 import { verifySanitized } from '../detect/tierB/verify.js';
+import { adjudicateUnreviewed, recordHumanDecision } from '../detect/tierB/adjudicate.js';
 import { decide, getPolicy, watchlistFor } from '../policy/policy.js';
 import { vault } from '../vault/vault.js';
 import { bus, metrics } from '../lib/events.js';
@@ -15,6 +16,8 @@ export const pendingApprovals = new Map();
 export function resolveEscalation(id, approved, reviewer = 'dashboard') {
   const pending = pendingApprovals.get(id);
   if (!pending) return false;
+  // A human answered, so the ratchet resets.
+  recordHumanDecision({ sessionId: pending.sessionId, group: pending.group, policy: getPolicy() });
   pendingApprovals.delete(id);
   clearTimeout(pending.timer);
   pending.resolve({ approved, reviewer });
@@ -107,7 +110,7 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
     // Time spent waiting for a person is not gateway latency. Measured
     // separately so it never lands in the performance numbers.
     const reviewStart = performance.now();
-    const verdict = await requestApproval({ requestId, sessionId, group, decision, joined });
+    const verdict = await requestApproval({ requestId, sessionId, group, decision, joined, policy });
     reviewMs = performance.now() - reviewStart;
 
     if (!verdict.approved) {
@@ -118,9 +121,11 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
         escalated, reviewMs,
       });
       const { status, body: errBody } = adapter.errorResponse(
-        verdict.reason === 'timeout'
-          ? 'This prompt needed human review and no reviewer responded in time. It was not sent.'
-          : 'A reviewer declined this prompt. It was not sent to the AI provider.',
+        verdict.auto
+          ? `This prompt needed human review, nobody answered, and it was ${verdict.auto.reason}`
+          : verdict.reason === 'timeout'
+            ? 'This prompt needed human review and no reviewer responded in time. It was not sent.'
+            : 'A reviewer declined this prompt. It was not sent to the AI provider.',
         { requestId, reasons: decision.reasons },
       );
       return sendJson(res, status, errBody);
@@ -229,15 +234,42 @@ function blockMessage(decision) {
   );
 }
 
-function requestApproval({ requestId, sessionId, group, decision, joined }) {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      pendingApprovals.delete(requestId);
-      bus.publish({ kind: 'escalation_resolved', requestId, approved: false, reviewer: 'timeout' });
-      resolve({ approved: false, reviewer: 'timeout', reason: 'timeout' });
-    }, config.escalationTimeoutMs);
+function requestApproval({ requestId, sessionId, group, decision, joined, policy, sanitizedPreview }) {
+  const waitMs = policy?.escalation?.wait_for_human_ms ?? config.escalationTimeoutMs;
 
-    pendingApprovals.set(requestId, { resolve, timer });
+  return new Promise((resolve) => {
+    const timer = setTimeout(async () => {
+      pendingApprovals.delete(requestId);
+
+      // Nobody answered. Rather than a blunt fail-closed, let the decision model
+      // take the call - under a ratchet that blocks once a run of unreviewed
+      // decisions exceeds the administrator's limit.
+      const mode = policy?.escalation?.on_timeout ?? 'judge';
+      if (mode !== 'judge') {
+        const approved = mode === 'allow';
+        bus.publish({ kind: 'escalation_resolved', requestId, approved, reviewer: 'timeout' });
+        return resolve({ approved, reviewer: 'timeout', reason: 'timeout' });
+      }
+
+      const call = await adjudicateUnreviewed({
+        sanitized: sanitizedPreview ?? joined,
+        decision,
+        sessionId,
+        group,
+        policy,
+      });
+      bus.publish({
+        kind: 'escalation_resolved',
+        requestId,
+        approved: call.approved,
+        reviewer: call.by,
+        reason: call.reason,
+        consecutive: call.consecutive,
+      });
+      return resolve({ approved: call.approved, reviewer: call.by, reason: call.reason, auto: call });
+    }, waitMs);
+
+    pendingApprovals.set(requestId, { resolve, timer, sessionId, group });
     bus.publish({
       kind: 'escalation_pending',
       requestId,

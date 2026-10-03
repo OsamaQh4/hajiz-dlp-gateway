@@ -70,6 +70,24 @@ on_judge_error: warn
 # on_residual_leak starts at `warn`: the finding is recorded and shown, but the
 # request still goes. Measure how often it trips on your own traffic before
 # moving to `escalate`, which holds the prompt for a reviewer.
+# What happens to an escalated prompt when no reviewer answers.
+#
+# Failing closed every time trains people to route around the gateway; failing
+# open silently is worse. The decision model takes the call instead - but trust
+# ratchets: each consecutive decision made without a human is counted, and past
+# the limit every later timeout is a block whatever the model says. One human
+# answer resets the run.
+#
+# wait_for_human_ms holds the request open, so it is bounded by HTTP timeouts.
+# Beyond about two minutes you need a queue rather than a longer wait.
+escalation:
+  wait_for_human_ms: 90000
+  on_timeout: judge            # judge | block | allow
+  min_confidence: 0.75         # below this the model's approval is not accepted
+  auto_decisions_before_block: 3
+  counter_scope: session       # session | group | global
+  judge_timeout_ms: 8000
+
 verification:
   enabled: true
   leak_above: 0.8
