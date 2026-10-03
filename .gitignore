@@ -4,3 +4,4 @@ data/
 *.log
 scripts/demo-env.ps1
 docs/template/
+data/jev-result.json

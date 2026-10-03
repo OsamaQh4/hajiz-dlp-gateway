@@ -12,7 +12,8 @@
     "test": "node --test \"test/**/*.test.js\"",
     "bench": "node bench/run.js",
     "demo": "node scripts/demo-client.js",
-    "doctor": "node scripts/doctor.js"
+    "doctor": "node scripts/doctor.js",
+    "jev": "node tools/jev-test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
