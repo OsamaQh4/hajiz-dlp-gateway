@@ -250,10 +250,40 @@ window can be.
 
 ## Results
 
+### Test 1 — PASSED, and it taught us where the control surface is
+
+Run against `typesafe/jev-1.13`. Both states name the same facility; only the
+surrounding text differs.
+
+| Criteria version | 1A (layoffs) | 1B (first-aid) | Gap |
+|---|---|---|---|
+| v1 — "identifies a person, customer, **facility**, …" | 94% | 45% | 49 pts |
+| v2 — "a facility counts **only when** the text also reveals something non-public about it" | **95%** | **10%** | **85 pts** |
+
+Latency 360 ms – 1.0 s. Cost ~$0.0000192 per call.
+
+Two things follow, and the second matters more than the first:
+
+1. **Jev discriminates on context, not keywords.** Same span, 95% versus 10%.
+   The mosaic principle is expressible as a calibrated probability rather than a
+   hand-written rule.
+2. **The discriminating power lives in the criteria, not the model.** The state
+   was byte-identical across both rows; only the TRUE/FALSE definitions changed,
+   and the benign case fell 45 → 10 while the sensitive case moved 94 → 95.
+   Tightening the definition removed a false positive at almost no cost to
+   recall. That means `policy.yaml` can become the control surface: a security
+   team tunes what counts as sensitive by editing prose, with no retraining and
+   no code change.
+
+An earlier framing that presented the span separately from its context
+("Candidate span under review: X" after the prompt) scored 62% on 1A at 1.7 s.
+Feeding the prompt directly, as one state, was both more accurate and three
+times faster. Jev wants the document, not a fragment plus a pointer.
+
+### Remaining
+
 | Test | Expected | p(yes) | Latency | Cost | Verdict |
 |---|---|---|---|---|---|
-| 1A Dammam / layoffs | high | | | | |
-| 1B Dammam / first-aid | low | | | | |
 | 2A model ID | low | | | | |
 | 2B real API key | high | | | | |
 | 3 HSM weakness | high | | | | |
