@@ -394,6 +394,64 @@ shape.
 Caveat: this is a short, clean snippet. It is not 22 KB of real agent traffic
 with a system prompt wrapped around it. Test 7 still matters.
 
+### Test 6b — PASSED, 11 of 11
+
+Run against `typesafe/jev-1.13` through OpenRouter's `/api/alpha/decisions`.
+
+| Question | Answer | Confidence |
+|---|---|---|
+| gate | 98.0% | — |
+| cls_id → `personal_identifier` | ✔ | 1.00 |
+| cls_email → `contact_detail` | ✔ | 1.00 |
+| cls_host → `infrastructure` | ✔ | 1.00 |
+| cls_falcon → `project` | ✔ | 1.00 |
+| cls_saned → `strategic` | ✔ | 1.00 |
+| cls_q3 → `none` *(distractor)* | ✔ | 0.97 |
+| cls_auth → `none` *(distractor)* | ✔ | 0.97 |
+| sent_deal | 97.0% | — |
+| sent_fin | 86.0% | — |
+| severity | level 3.06 | 0.93 |
+
+**Fan-out: 334 ms for 11 questions against 378 ms for one.** Marginal cost of
+extra questions is unmeasurable. (An earlier run showed 0.42x only because the
+single-question baseline was paying for connection setup; a warm-up call fixed
+the comparison.)
+
+**The distractors took two attempts, and the first failure is the useful part.**
+Asked to *"classify the span Q3"*, Jev answered `financial` at 0.99 — correctly,
+because a quarter label genuinely is financial in kind. It simply is not
+sensitive on its own. The question conflated two axes: *what kind of thing is
+this* and *is this worth protecting*. Rewritten as *"substituting this span
+would protect which kind of non-public information? Choose none if replacing it
+would protect nothing"*, with every class requiring specificity, both
+distractors flipped to `none` at 0.97.
+
+### Verdict against the rule fixed in advance
+
+> *Jev replaces the generative judge only if Test 1 shows a wide gap, Test 4
+> stays low, and Test 6 shows fan-out roughly flat in cost.*
+
+| Test | Bar | Result |
+|---|---|---|
+| 1 — context discrimination | >50 pt gap | 95% vs 10% = **85 pts** |
+| 4 — benign control | low | **2.0%** |
+| 6 — fan-out and accuracy | roughly flat | **0.88x for 11x**, 11/11 correct |
+
+Three for three. **Build it.**
+
+### What this does not yet establish
+
+- Everything above is one hand-written probe. The criteria were tuned twice
+  against these very distractors, which is the same overfitting risk that
+  applied to the Gemma judge prompt. The honest next step is the **full 33-sample
+  corpus**, which the criteria were not tuned on, with `--runs 3`.
+- Long states are untested. Real traffic is 22-24 KB; every state here was a
+  paragraph. Test 7 still stands.
+- Three times now the **criteria**, not the model, have been the lever: Test 1
+  (45% → 10%), and Test 6 twice. That is the finding worth carrying into the
+  deck - the discriminating power lives in prose a security team can edit, not
+  in weights.
+
 ### Remaining
 
 | Test | Expected | p(yes) | Latency | Cost | Verdict |
