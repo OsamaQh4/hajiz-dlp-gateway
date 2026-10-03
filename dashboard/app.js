@@ -37,6 +37,7 @@ function hydrate(state) {
   latest = state;
   renderTiles(state);
   renderFooter(state);
+  renderModeBanner(state);
   for (const e of state.events || []) handleEvent(e);
 }
 
@@ -46,6 +47,7 @@ async function refreshState() {
     latest = state;
     renderTiles(state);
     renderFooter(state);
+    renderModeBanner(state);
   } catch {
     /* the SSE reconnect will catch us up */
   }
@@ -69,7 +71,7 @@ function addFeedRow(event) {
   li.id = `row-${event.requestId}`;
   li.innerHTML = `
     <div class="row">
-      <span class="pill ${esc(event.action)}">${esc(event.action)}</span>
+      <span class="pill ${esc(event.action)}">${event.observed ? 'would ' : ''}${esc(event.action)}</span>
       <span class="time">${new Date(event.ts).toLocaleTimeString()}</span>
     </div>
     <div class="summary">
@@ -96,7 +98,7 @@ function renderDetail(event) {
   detail.innerHTML = `
     <h2>Request ${esc(event.requestId.slice(0, 8))}</h2>
     <div class="meta">
-      <span>decision <b class="pill ${esc(event.action)}">${esc(event.action)}</b></span>
+      <span>decision <b class="pill ${esc(event.action)}">${event.observed ? 'would ' : ''}${esc(event.action)}</b></span>
       <span>session <b>${esc(event.sessionId)}</b></span>
       <span>route <b>${esc(event.route)}</b></span>
       <span>tier A <b>${fmt(event.tierAMs)} ms</b></span>
@@ -122,13 +124,12 @@ function renderDetail(event) {
       </div>
       <div class="pane">
         <h3>What actually left the network</h3>
-        <pre>${
-          event.action === 'block'
-            ? '<span class="placeholder">nothing — the request was blocked</span>'
-            : hasPlaintext
-              ? highlightTokens(event.sanitized)
-              : '<span class="placeholder">hidden — dashboard plaintext is disabled</span>'
-        }</pre>
+        ${
+          event.observed
+            ? '<div class="notice">Observe mode: this went out <b>unmodified</b>. The spans below are what enforcement would have replaced.</div>'
+            : ''
+        }
+        <pre>${rightPane(event, hasPlaintext)}</pre>
       </div>
     </div>
 
@@ -153,6 +154,18 @@ function renderDetail(event) {
           </table>`
         : '<p class="empty">No sensitive spans in this request.</p>'
     }`;
+}
+
+/**
+ * What genuinely left the network. In observe mode nothing is altered, so the
+ * honest answer is the original text - showing an empty pane under the heading
+ * "what actually left the network" said the opposite of the truth.
+ */
+function rightPane(event, hasPlaintext) {
+  if (!hasPlaintext) return '<span class="placeholder">hidden — dashboard plaintext is disabled</span>';
+  if (event.observed) return highlightLeaks(event.original, (event.mappings || []).filter((m) => m.original));
+  if (event.action === 'block') return '<span class="placeholder">nothing — the request was blocked</span>';
+  return highlightTokens(event.sanitized);
 }
 
 function highlightLeaks(text, mappings) {
@@ -199,20 +212,36 @@ async function resolve(requestId, approved) {
 
 function renderTiles(state) {
   const m = state.metrics;
+  const observing = state.enforcement === 'observe';
+  const sub = (enforced, observed) => (observing ? observed : enforced);
   const tile = (label, value, sub = '', cls = '') =>
     `<div class="tile ${cls}"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
 
   tiles.innerHTML = [
     tile('Requests', m.requests, 'through the gateway'),
-    tile('Pseudonymized', m.byAction.pseudonymize, 'sent, but sanitized', 'ok'),
-    tile('Escalated', m.byAction.escalate, 'a human was asked', 'warn'),
-    tile('Blocked', m.byAction.block, 'never left the network', 'bad'),
+    tile('Pseudonymized', m.byAction.pseudonymize, sub('sent, but sanitized', 'would be sanitized'), 'ok'),
+    tile('Escalated', m.byAction.escalate, sub('a human was asked', 'would be held for a human'), 'warn'),
+    tile('Blocked', m.byAction.block, sub('never left the network', 'would be blocked'), 'bad'),
     tile('Tier B rate', `${Math.round(m.tierBRate * 100)}%`, 'of prompts needed the judge'),
     tile('Tier A p50', m.tierA.p50 == null ? '—' : `${m.tierA.p50}`, 'ms, deterministic layer'),
     tile('Tier A p95', m.tierA.p95 == null ? '—' : `${m.tierA.p95}`, 'ms'),
     tile('Tier B p95', m.tierB.p95 == null ? '—' : `${m.tierB.p95}`, 'ms, judge only'),
     tile('Gateway p95', m.total.p95 == null ? '—' : `${m.total.p95}`, 'ms, human review excluded'),
   ].join('');
+}
+
+function renderModeBanner(state) {
+  const existing = document.getElementById('mode-banner');
+  if (state.enforcement !== 'observe') { existing?.remove(); return; }
+  if (existing) return;
+  const el = document.createElement('div');
+  el.className = 'banner';
+  el.id = 'mode-banner';
+  el.innerHTML =
+    '<h3>Observe mode — nothing is being altered or blocked</h3>' +
+    '<div class="why">Every request below was forwarded to the provider exactly as the employee wrote it. ' +
+    'The decisions shown are what enforcement <b>would</b> have done.</div>';
+  document.getElementById('escalations').before(el);
 }
 
 function renderFooter(state) {
