@@ -146,6 +146,45 @@ test('prose and tool arguments do not share a hold-back buffer', () => {
   assert.match(out, /Ahmed Al-Otaibi/);
 });
 
+test('a file an agent read is inspected, not waved through', async () => {
+  // The worst defect found in enforce-mode testing: tool results arriving as a
+  // plain string were skipped entirely, so every file an agent read reached the
+  // provider uninspected - and a file is the likeliest place a credential sits.
+  // Confirmed live: P@ssw0rd went out in the clear on four consecutive requests.
+  const body = {
+    messages: [
+      { role: 'user', content: 'read notes.md' },
+      {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 't1', content: '# Notes\n- Password: P@ssw0rd\n' }],
+      },
+    ],
+  };
+
+  const segments = anthropicAdapter.segments(body);
+  const fileContents = segments.find((s) => s.text.includes('P@ssw0rd'));
+  assert.ok(fileContents, 'the file an agent read must be collected for inspection');
+
+  const { scanTierA } = await import('../gateway/detect/tierA/index.js');
+  const hit = scanTierA(fileContents.text).find((f) => f.cls === 'credentials');
+  assert.ok(hit, 'and Tier A must then see the credential inside it');
+
+  // It also has to be writable, or detection would be pointless.
+  fileContents.set('# Notes\n- Password: CRED_1\n');
+  assert.match(body.messages[1].content[0].content, /CRED_1/);
+});
+
+test('a structured tool result is still collected', () => {
+  const body = {
+    messages: [
+      { role: 'user', content: [{ type: 'tool_result', content: [{ type: 'text', text: 'mail a@b.sa' }] }] },
+    ],
+  };
+  const segments = anthropicAdapter.segments(body);
+  assert.equal(segments.length, 1);
+  assert.equal(segments[0].text, 'mail a@b.sa');
+});
+
 test('OpenAI tool arguments are rehydrated too', () => {
   const { vault } = setup();
   const reply = {

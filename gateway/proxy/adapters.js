@@ -54,7 +54,24 @@ function collectContent(content, push) {
         },
       });
     } else if (block?.type === 'tool_result') {
-      collectContent(block.content, push);
+      // A tool result is usually the contents of a file the agent just read,
+      // which is the likeliest place in agent traffic for a credential to
+      // appear. When it arrives as a plain string, collectContent's string
+      // branch returns without collecting anything - so this handles it here,
+      // where the parent reference exists. Without this, every file an agent
+      // reads goes to the provider uninspected.
+      if (typeof block.content === 'string') {
+        push({
+          get text() {
+            return block.content;
+          },
+          set: (v) => {
+            block.content = v;
+          },
+        });
+      } else {
+        collectContent(block.content, push);
+      }
     }
   }
 }
