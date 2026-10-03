@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { config, isMock, isObserve } from '../config.js';
 import { detect, SEP } from '../detect/index.js';
+import { verifySanitized } from '../detect/tierB/verify.js';
 import { decide, getPolicy, watchlistFor } from '../policy/policy.js';
 import { vault } from '../vault/vault.js';
 import { bus, metrics } from '../lib/events.js';
@@ -142,13 +143,30 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
   }
 
   const sanitized = segments.map((s) => s.text).join(SEP);
-  const action = mappings.length ? finalAction : 'allow';
+  let action = mappings.length ? finalAction : 'allow';
+
+  // Check our own work before forwarding. Substitution removes names; it does
+  // not remove facts, and the pipeline had no way to notice the difference.
+  let verification = null;
+  if (mappings.length && action !== 'block') {
+    verification = await verifySanitized(sanitized, { policy });
+    if (verification.leaked) {
+      const mode = policy.verification?.on_residual_leak ?? 'warn';
+      const pct = Math.round((verification.probability ?? 0) * 100);
+      decision.reasons.push(
+        `sanitized text still reveals ${verification.what ?? 'something non-public'} (${pct}%)`,
+      );
+      if (mode === 'block') action = 'block';
+      else if (mode === 'escalate') action = 'escalate';
+    }
+  }
 
   await finish({
     requestId, sessionId, group, adapter, action, decision, timings, judge: judgeInfo,
     started, joined, sanitized, mappings, escalated, reviewMs,
     extra: {
       skipReason: result.tierBSkipReason,
+      verification: verification?.checked ? { leaked: verification.leaked, probability: verification.probability, what: verification.what } : undefined,
       // A name we could not attribute to one entity is still in the prompt.
       // Surface it rather than letting an unresolved identity disappear.
       ambiguousAliases: ambiguous.length ? ambiguous.map((a) => a.alias) : undefined,

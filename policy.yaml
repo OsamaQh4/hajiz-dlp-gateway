@@ -63,6 +63,20 @@ thresholds:
 # block (fail closed), or allow (fail open, silent - not recommended).
 on_judge_error: warn
 
+# Check our own work: after substitution, ask whether anything non-public
+# survived. Masking "Saned" still leaves "we are acquiring ORG_1 next quarter
+# and it is not yet public" - the names go, the deal stays.
+#
+# on_residual_leak starts at `warn`: the finding is recorded and shown, but the
+# request still goes. Measure how often it trips on your own traffic before
+# moving to `escalate`, which holds the prompt for a reviewer.
+verification:
+  enabled: true
+  leak_above: 0.8
+  min_chars: 60
+  timeout_ms: 6000
+  on_residual_leak: warn   # warn | escalate | block
+
 # Terms only this organization knows are sensitive. Deterministic, zero-latency,
 # and the reason Tier A catches codenames no vendor's model has ever seen.
 watchlist:
