@@ -51,6 +51,29 @@ test('watchlist does not match inside a longer word', () => {
   assert.equal(found.length, 0);
 });
 
+test('a sentence-level finding is not displaced by an identifier inside it', () => {
+  // These carry different actions - `project` pseudonymizes, `strategic`
+  // escalates. Dropping the wider one substituted the counterparty and
+  // forwarded the deal, which is the residual leak measured at 96%.
+  const resolved = resolveOverlaps([
+    { start: 16, end: 21, cls: 'project', detector: 'watchlist', priority: 85, confidence: 1, tier: 'A' },
+    { start: 0, end: 60, cls: 'strategic', detector: 'jev', confidence: 0.95, tier: 'B', semantic: true },
+  ]);
+  assert.equal(resolved.length, 2, 'both granularities must survive');
+  assert.ok(resolved.some((f) => f.cls === 'strategic'));
+  assert.ok(resolved.some((f) => f.cls === 'project'));
+});
+
+test('partially overlapping claims still resolve to one', () => {
+  // Containment is the exception, not overlap in general.
+  const resolved = resolveOverlaps([
+    { start: 0, end: 20, cls: 'secret', detector: 'high_entropy_secret', priority: 30, confidence: 0.6 },
+    { start: 10, end: 30, cls: 'email', detector: 'email', priority: 60, confidence: 0.99 },
+  ]);
+  assert.equal(resolved.length, 1);
+  assert.equal(resolved[0].cls, 'email');
+});
+
 test('overlapping claims resolve to the higher-priority detector', () => {
   const resolved = resolveOverlaps([
     { start: 0, end: 24, cls: 'secret', detector: 'high_entropy_secret', priority: 30, confidence: 0.6 },

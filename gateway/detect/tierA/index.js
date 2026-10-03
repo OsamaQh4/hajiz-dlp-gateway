@@ -41,9 +41,20 @@ export function scanTierA(text, { watchlist = [] } = {}) {
   return resolveOverlaps(raw);
 }
 
+/** Does one span strictly contain the other? */
+const contains = (a, b) => a.start <= b.start && a.end >= b.end && (a.end - a.start) > (b.end - b.start);
+
 /**
  * Two detectors often claim the same characters (an IBAN also looks like a
  * high-entropy string). Keep the higher-priority one, then the longer one.
+ *
+ * Containment is the exception. A sentence-level semantic finding and the
+ * identifier inside it are not rival claims about the same characters - they
+ * are different granularities carrying different actions. Dropping the wider
+ * one let "Saned" (project -> pseudonymize) silently displace "acquiring Saned
+ * next quarter" (strategic -> escalate), so the gateway substituted the
+ * counterparty and forwarded the deal. That is the residual leak we measured
+ * at 96%, caused by our own overlap resolution.
  */
 export function resolveOverlaps(findings) {
   const sorted = [...findings].sort(
@@ -54,7 +65,7 @@ export function resolveOverlaps(findings) {
   );
   const kept = [];
   for (const f of sorted) {
-    const clash = kept.find((k) => f.start < k.end && k.start < f.end);
+    const clash = kept.find((k) => f.start < k.end && k.start < f.end && !contains(k, f) && !contains(f, k));
     if (!clash) {
       kept.push(f);
       continue;
