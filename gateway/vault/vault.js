@@ -125,16 +125,30 @@ export class Vault {
    * Replace every finding in `text` with a placeholder.
    * @returns {{text:string, mappings:Array<{token:string,cls:string,detector:string,confidence:number,original:string}>}}
    */
+  /**
+   * An irreversible replacement, for values the model never needs and that must
+   * never come back. A pseudonym is restored on the way home; a redaction is
+   * not, because restoring a credential into a reply would hand it straight to
+   * whoever reads it.
+   */
+  static redactionFor(cls) {
+    return `[REDACTED:${cls}]`;
+  }
+
   tokenize(sessionId, text, findings) {
     const ordered = [...findings].sort((a, b) => b.start - a.start);
     const mappings = [];
     let out = text;
     for (const f of ordered) {
       const original = text.slice(f.start, f.end);
-      const token = this.tokenFor(sessionId, original, f.cls);
-      out = out.slice(0, f.start) + token + out.slice(f.end);
+      // A redacted span gets no vault entry at all. Nothing to restore means
+      // nothing that can be restored by mistake.
+      const redacted = f.action === 'redact';
+      const replacement = redacted ? Vault.redactionFor(f.cls) : this.tokenFor(sessionId, original, f.cls);
+      out = out.slice(0, f.start) + replacement + out.slice(f.end);
       mappings.unshift({
-        token,
+        token: redacted ? null : replacement,
+        redacted,
         cls: f.cls,
         detector: f.detector,
         confidence: f.confidence,

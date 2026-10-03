@@ -8,8 +8,18 @@ name: Default enterprise policy
 # What happens when a class of sensitive data is found in an outbound prompt.
 #   allow         - let it through untouched
 #   pseudonymize  - replace with a stable placeholder, restore it in the answer
+#   redact        - replace irreversibly; nothing is restored, ever
 #   escalate      - hold the prompt until a human reviewer approves it
 #   block         - refuse, and tell the employee why
+#
+# On `redact` versus `block` for credentials. Blocking is the stronger signal
+# when someone has just typed a secret: they see the refusal and can remove it.
+# But a conversation carries its history, so once a credential is sitting in a
+# file the agent read, every later turn carries it too and every later turn is
+# blocked - the session is dead until the file changes. Redaction keeps the
+# session alive and the secret still never leaves, because the model does not
+# need the real password to be useful. Observed in enforce-mode testing against
+# a live coding agent.
 actions:
   secret: block
   credentials: block

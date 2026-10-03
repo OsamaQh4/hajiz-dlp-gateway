@@ -75,6 +75,47 @@ test('unknown placeholders pass through untouched', () => {
   assert.equal(vault.rehydrate('s1', 'see PERSON_9 and ORG_4'), 'see PERSON_9 and ORG_4');
 });
 
+test('a redacted span is replaced irreversibly and never comes back', () => {
+  // Restoring a credential into a reply would hand it to whoever reads the
+  // reply - the opposite of the point. So a redaction keeps no vault entry.
+  const vault = new Vault();
+  const text = 'config: password: Hunter2!x and mail a@b.sa';
+  const findings = [
+    ...findingsFor(text).map((f) => ({ ...f, action: f.cls === 'credentials' ? 'redact' : 'pseudonymize' })),
+  ];
+
+  const { text: out, mappings } = vault.tokenize('s1', text, findings);
+  assert.match(out, /\[REDACTED:credentials\]/);
+  assert.ok(!/Hunter2!x/.test(out), 'the secret must not survive');
+
+  const restored = vault.rehydrate('s1', out);
+  assert.ok(!/Hunter2!x/.test(restored), 'and must not come back on the way home');
+  assert.match(restored, /\[REDACTED:credentials\]/);
+
+  const credential = mappings.find((m) => m.cls === 'credentials');
+  assert.equal(credential.redacted, true);
+  assert.equal(credential.token, null, 'a redaction mints no placeholder');
+});
+
+test('redactions and pseudonyms coexist in one pass without corrupting offsets', () => {
+  const vault = new Vault();
+  const text = 'mail a@b.sa, password: Hunter2!x, then mail c@d.sa';
+  const findings = findingsFor(text).map((f) => ({
+    ...f,
+    action: f.cls === 'credentials' ? 'redact' : 'pseudonymize',
+  }));
+
+  const { text: out } = vault.tokenize('s1', text, findings);
+  assert.equal((out.match(/EMAIL_\d+/g) ?? []).length, 2, 'both addresses substituted');
+  assert.match(out, /\[REDACTED:credentials\]/);
+  assert.ok(!/Hunter2!x|a@b\.sa|c@d\.sa/.test(out));
+
+  const restored = vault.rehydrate('s1', out);
+  assert.match(restored, /a@b\.sa/);
+  assert.match(restored, /c@d\.sa/);
+  assert.ok(!/Hunter2!x/.test(restored));
+});
+
 test('a second mention of the same person does not escape', () => {
   // The defect: findings carry exact spans, so "Ahmed Al-Otaibi" was
   // substituted and a later bare "Al-Otaibi" went out in the clear. Invisible

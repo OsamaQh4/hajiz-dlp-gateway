@@ -68,6 +68,31 @@ test('a long Tier A span is not second-guessed', () => {
   assert.equal(d.action, 'pseudonymize');
 });
 
+test('redact outranks pseudonymize but yields to block', () => {
+  // Ordered by how much each protects: a redaction keeps nothing, so it is
+  // stricter than a reversible placeholder - but gentler than refusing.
+  loadPolicy();
+  const p = getPolicy();
+  p.actions.credentials = 'redact';
+
+  assert.equal(decide([finding({ cls: 'credentials' }), finding({ cls: 'email' })]).action, 'redact');
+  assert.equal(decide([finding({ cls: 'credentials' }), finding({ cls: 'secret' })]).action, 'block');
+
+  p.actions.credentials = 'block';
+});
+
+test('a redacted finding is still substituted, not merely counted', () => {
+  loadPolicy();
+  const p = getPolicy();
+  p.actions.credentials = 'redact';
+
+  const d = decide([finding({ cls: 'credentials' })]);
+  assert.equal(d.toTokenize.length, 1, 'it must reach the vault to be replaced');
+  assert.equal(d.toTokenize[0].action, 'redact');
+
+  p.actions.credentials = 'block';
+});
+
 test('group overrides apply', () => {
   const f = [finding({ cls: 'internal_host' })];
   assert.equal(decide(f).action, 'pseudonymize');

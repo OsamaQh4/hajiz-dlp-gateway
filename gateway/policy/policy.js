@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import * as yaml from 'js-yaml';
 import { config } from '../config.js';
 
-const ACTION_RANK = { allow: 0, pseudonymize: 1, escalate: 2, block: 3 };
+// Ordered by how much they protect. A redaction is stricter than a pseudonym
+// because nothing is restored, but gentler than holding or refusing the request.
+const ACTION_RANK = { allow: 0, pseudonymize: 1, redact: 2, escalate: 3, block: 4 };
 const VALID_ACTIONS = Object.keys(ACTION_RANK);
 
 const FALLBACK = {
@@ -129,7 +131,9 @@ export function decide(findings, { group, judgeDegraded = false } = {}) {
 
   // Anything not blocked and not explicitly allowed still gets pseudonymized -
   // including on an escalated request, once the reviewer approves it.
-  const toTokenize = perFinding.filter((f) => f.action === 'pseudonymize' || f.action === 'escalate');
+  const toTokenize = perFinding.filter(
+    (f) => f.action === 'pseudonymize' || f.action === 'escalate' || f.action === 'redact',
+  );
 
   return { action, perFinding, reasons, toTokenize, blocked };
 }

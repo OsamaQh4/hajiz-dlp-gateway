@@ -125,8 +125,8 @@ simply dropped.
 This two-tier split is the answer to the first question anyone asks: *doesn't an LLM call
 on every prompt destroy your latency?* It doesn't, because most prompts never reach Tier B.
 
-**The policy engine** maps each class to one of four actions — `allow`, `pseudonymize`,
-`escalate`, `block` — with per-group overrides, and the strictest finding decides the
+**The policy engine** maps each class to one of five actions — `allow`, `pseudonymize`,
+`redact`, `escalate`, `block` — with per-group overrides, and the strictest finding decides the
 request. A low-confidence judge finding is escalated to a human rather than acted on
 silently. The whole control surface is one readable [`policy.yaml`](policy.yaml), hot-reloaded
 on save.

@@ -59,6 +59,7 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
     // monitor deployment - you cannot tune a policy against a number.
     const wouldTokenize = decision.toTokenize.concat(decision.blocked).map((f) => ({
       token: null,
+      redacted: f.action === 'redact',
       cls: f.cls,
       detector: f.detector,
       tier: f.tier,
