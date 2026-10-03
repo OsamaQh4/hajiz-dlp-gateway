@@ -60,9 +60,32 @@ test('sentences are split with offsets that still point at their own text', () =
   for (const p of parts) assert.equal(TEXT.slice(p.start, p.end), p.text);
 });
 
-test('short fragments are not sent as sentences', () => {
-  const parts = sentences('Hi. Thanks. ' + 'A genuinely long sentence that carries some actual content here.');
+test('a short line is judged with its neighbours rather than discarded', () => {
+  // This test used to assert the opposite - that a part under 30 characters was
+  // dropped before the judge saw it - and that is exactly how a password on a
+  // line of its own left the network: no sentence, so no question, so no
+  // finding. Nothing is dropped now, and a part too short to speak for itself
+  // carries the text around it as context.
+  const text = 'Email: someone@example.com\n7-2jkLm#qz\n';
+  const parts = sentences(text);
+
+  const credential = parts.find((p) => p.text === '7-2jkLm#qz');
+  assert.ok(credential, 'the credential line must reach the judge');
+  assert.ok(credential.context.includes('someone@example.com'), 'with its neighbour as context');
+  assert.equal(text.slice(credential.start, credential.end), credential.text, 'and a span tight to the secret');
+});
+
+test('a long sentence is asked about without context, in the benchmarked wording', () => {
+  // The head-to-head numbers were measured on this phrasing. A unit that can
+  // stand on its own must still produce the identical question, or the measured
+  // accuracy no longer describes the shipped prompt.
+  const parts = sentences('A genuinely long sentence that carries some actual content here.');
   assert.equal(parts.length, 1);
+  assert.equal(parts[0].context, undefined);
+});
+
+test('delimiters and punctuation are not worth a question', () => {
+  assert.deepEqual(sentences('}\n---\n   \n'), []);
 });
 
 test('two questions per sentence, plus the gate and severity', async () => {
@@ -185,9 +208,64 @@ test('an upstream failure degrades loudly and finds nothing', async () => {
 });
 
 test('nothing worth asking means no request at all', async () => {
-  const r = await judgeWithJev('short.', [], { policy: POLICY });
+  // Still true, but the bar is now "holds no letter or digit" rather than "is
+  // shorter than a sentence". A six-character prompt gets a question; the
+  // request-level gate in detect() is what keeps trivial prompts off the judge.
+  const r = await judgeWithJev('}\n---\n', [], { policy: POLICY });
   assert.equal(lastRequest, null);
   assert.equal(r.findings.length, 0);
+});
+
+test('a credential alone on a line is asked about, with no label in front of it', async () => {
+  // The whole point of the change: the gateway must put the question, even when
+  // no pattern can nominate the value and no sentence surrounds it.
+  respond = () => ({});
+  await judgeWithJev('Email: someone@example.com\n7-2jkLm#qz\n', [], { policy: POLICY });
+
+  const asked = Object.entries(lastRequest.questions)
+    .filter(([k]) => k.startsWith('hot_'))
+    .map(([, q]) => q.instructions);
+  assert.ok(
+    asked.some((q) => q.includes('"7-2jkLm#qz"')),
+    'the credential line must be the subject of a question',
+  );
+  assert.ok(
+    asked.some((q) => q.includes('7-2jkLm#qz') && q.includes('someone@example.com')),
+    'and the judge must be given the surrounding text to read it against',
+  );
+});
+
+test('an unlabelled value the judge calls a credential becomes a tight finding', async () => {
+  const text = 'Email: someone@example.com\n7-2jkLm#qz\n';
+  respond = (req) => {
+    const out = {};
+    for (const [k, q] of Object.entries(req.questions)) {
+      if (!k.startsWith('hot_') && !k.startsWith('sent_')) continue;
+      const credential = q.instructions.includes('"7-2jkLm#qz"');
+      if (k.startsWith('hot_')) out[k] = { noul: credential ? 0.95 : 0.1 };
+      else out[k] = { choice: credential ? 'credentials' : 'none', confidence: 0.92 };
+    }
+    return out;
+  };
+
+  const r = await judgeWithJev(text, [], { policy: POLICY });
+  const f = r.findings.find((x) => x.cls === 'credentials');
+  assert.ok(f, 'the credential must be found');
+  assert.equal(text.slice(f.start, f.end), '7-2jkLm#qz', 'the span covers the secret and nothing else');
+});
+
+test('truncating the units is reported, not silent', async () => {
+  // A request whose tail was never inspected is not a request that came back
+  // clean, and the difference has to be visible downstream.
+  process.env.DLP_SENTENCE_MAX = '2';
+  try {
+    respond = () => ({});
+    const r = await judgeWithJev('one line here\nsecond line here\nthird line here\n', [], { policy: POLICY });
+    assert.equal(Object.keys(lastRequest.questions).filter((k) => k.startsWith('hot_')).length, 2);
+    assert.equal(r.truncated, 1);
+  } finally {
+    delete process.env.DLP_SENTENCE_MAX;
+  }
 });
 
 test('policy escalates a semantic finding rather than substituting it', () => {

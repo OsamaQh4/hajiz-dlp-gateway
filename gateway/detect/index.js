@@ -64,6 +64,9 @@ export async function detect(segments, { policy, watchlist, signal } = {}) {
       judgeModel: result.model,
       gate: result.gate,
       severity: result.severity,
+      // Units past the cap were never inspected. Surfaced so a partially
+      // judged request is not displayed as a clean one.
+      tierBTruncated: result.truncated ?? 0,
       suppressed: result.suppressed.length,
       cache: cache.stats(),
       reusedFindings: 0,

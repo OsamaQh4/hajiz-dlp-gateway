@@ -39,8 +39,36 @@ export const TAXONOMY = {
 const NONE =
   'A generic word, label, period or common technical term that identifies nothing specific and reveals nothing non-public on its own. Replacing it would protect nothing.';
 
-/** Split into sentences, keeping offsets so findings stay locatable. */
-export function sentences(text, { minChars = 30, max = 40 } = {}) {
+/**
+ * Split into units to judge, keeping offsets so findings stay locatable.
+ *
+ * A part shorter than `minChars` used to be dropped here, on the reasoning
+ * that a fragment is too small to hide a semantic leak. That holds for prose
+ * and is false for precisely the thing this product exists to stop. A password
+ * sits on a line of its own, is ten characters long, and has no sentence around
+ * it. Observed live: a file containing
+ *
+ *     Email: someone@example.com
+ *     7-2jkLm#qz
+ *
+ * produced zero sentences, so the judge was never asked a single question about
+ * it, and the credential left the network while Tier A was busy not finding a
+ * `Password:` label in front of it. Two layers failed for unrelated reasons
+ * that coincide exactly on the shape of a real secret: short, unlabelled, and
+ * alone on a line. The model on the other end then pointed it out unasked.
+ *
+ * So nothing is dropped now. Every part holding a letter or a digit is judged,
+ * and a part too short to speak for itself carries its neighbours as context
+ * for the question.
+ *
+ * Short parts are deliberately *not* merged into larger units, though merging
+ * would cost fewer questions. A unit spanning both lines above would be
+ * classified `credentials` and the whole span replaced - taking the email with
+ * it. One unit per part keeps spans tight, so what gets substituted is the
+ * secret and not the paragraph around it. The cost is more questions on
+ * line-broken text, which is what the cap in judgeWithJev bounds.
+ */
+export function sentences(text, { minChars = 30, contextChars = 200 } = {}) {
   const parts = [];
   const re = /(?<=[.!?])\s+|\n+/g;
   let start = 0;
@@ -53,9 +81,38 @@ export function sentences(text, { minChars = 30, max = 40 } = {}) {
 
   return parts
     .map((p) => ({ ...p, text: text.slice(p.start, p.end) }))
-    .filter((p) => p.text.trim().length >= minChars)
-    .slice(0, max);
+    // Punctuation and bare delimiters - `}`, `---`, the segment separator -
+    // can hold neither an identifier nor a secret, so they are not worth a
+    // question. Anything with a letter or a digit in it is.
+    .filter((p) => /[\p{L}\p{N}]/u.test(p.text))
+    .map((p) =>
+      p.text.trim().length >= minChars
+        ? p
+        : {
+            ...p,
+            context: text.slice(Math.max(0, p.start - contextChars), Math.min(text.length, p.end + contextChars)),
+          },
+    );
 }
+
+/**
+ * How a unit is put to the judge. One long enough to stand alone is asked
+ * about in the wording the head-to-head benchmark was measured on, unchanged.
+ * A short one is asked differently, because ten characters tell the judge
+ * nothing while the lines around them say "this is a credentials dump" - and
+ * the question has to say the context is background, or the judge answers
+ * about the context and the finding lands on the wrong span.
+ */
+const hotQuestion = (s) => ({
+  type: 'noul',
+  instructions: s.context
+    ? `This line reveals something about the organization that is not already public: "${clip(s.text, 120)}". Judge that line only. It is shown here with the text around it purely as context: "${clip(s.context)}"`
+    : `This sentence reveals something about the organization that is not already public: "${clip(s.text)}"`,
+  criteria: {
+    true: 'It reveals an identified person or customer, an internal project or codename, undisclosed financials, a planned change such as redundancies or an acquisition, a security weakness, or a credential. A value that looks like a password, key or token counts even with no label in front of it. A place, facility, product or system counts only when the text also reveals something non-public about it.',
+    false: 'Routine correspondence, a general question, or a technical request. It mentions people, places, products or systems without revealing anything non-public about them. Naming a facility, product or technology on its own is not sensitive.',
+  },
+});
 
 const choice = (instructions, options) => ({
   type: 'choice',
@@ -72,12 +129,18 @@ export async function judgeWithJev(text, tierA = [], { policy, signal } = {}) {
   const adjudicateBelow = policy?.thresholds?.adjudicate_below ?? 0.9;
   const minConfidence = policy?.thresholds?.judge_min_confidence ?? 0.5;
 
-  const sents = sentences(text);
+  const all = sentences(text);
+  // Each unit costs two questions, so the count is capped. The truncation is
+  // reported rather than silent: a request whose tail was never inspected is
+  // not the same thing as a request that came back clean.
+  const maxSents = Number(process.env.DLP_SENTENCE_MAX ?? policy?.thresholds?.max_sentences ?? 40);
+  const sents = all.slice(0, maxSents);
+  const truncated = all.length - sents.length;
   // Only re-litigate Tier A hits we are not already sure about.
   const candidates = tierA.filter((f) => (f.confidence ?? 1) < adjudicateBelow);
 
   if (!sents.length && !candidates.length) {
-    return { findings: [], suppressed: [], gate: null, severity: null, degraded: false, error: null, model: config.jev.model };
+    return { findings: [], suppressed: [], gate: null, severity: null, truncated: 0, degraded: false, error: null, model: config.jev.model };
   }
 
   const questions = {
@@ -117,16 +180,11 @@ export async function judgeWithJev(text, tierA = [], { policy, signal } = {}) {
    * free.
    */
   sents.forEach((s, i) => {
-    questions[`hot_${i}`] = {
-      type: 'noul',
-      instructions: `This sentence reveals something about the organization that is not already public: "${clip(s.text)}"`,
-      criteria: {
-        true: 'It reveals an identified person or customer, an internal project or codename, undisclosed financials, a planned change such as redundancies or an acquisition, a security weakness, or a credential. A place, facility, product or system counts only when the sentence also reveals something non-public about it.',
-        false: 'Routine correspondence, a general question, or a technical request. It mentions people, places, products or systems without revealing anything non-public about them. Naming a facility, product or technology on its own is not sensitive.',
-      },
-    };
+    questions[`hot_${i}`] = hotQuestion(s);
     questions[`sent_${i}`] = choice(
-      `If that sentence does reveal something non-public, which kind is it? "${clip(s.text)}"`,
+      s.context
+        ? `If that line does reveal something non-public, which kind is it? "${clip(s.text, 120)}" (the text around it, as context only: "${clip(s.context)}")`
+        : `If that sentence does reveal something non-public, which kind is it? "${clip(s.text)}"`,
       TAXONOMY,
     );
   });
@@ -147,6 +205,7 @@ export async function judgeWithJev(text, tierA = [], { policy, signal } = {}) {
       suppressed: [],
       gate: null,
       severity: null,
+      truncated,
       degraded: true,
       error: err.message,
       model: config.jev.model,
@@ -204,6 +263,7 @@ export async function judgeWithJev(text, tierA = [], { policy, signal } = {}) {
     suppressed,
     gate: num(answers.gate?.noul, null),
     severity: num(answers.severity?.score, null),
+    truncated,
     degraded: false,
     error: null,
     model: config.jev.model,

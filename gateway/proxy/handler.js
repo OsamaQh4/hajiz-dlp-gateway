@@ -46,7 +46,12 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
   const decision = decide(result.findings, { group, judgeDegraded: result.judgeDegraded });
 
   const timings = { tierAMs: result.tierAMs, tierBMs: result.tierBMs, tierBRan: result.tierBRan };
-  const judgeInfo = { model: result.judgeModel, degraded: result.judgeDegraded, error: result.judgeError };
+  const judgeInfo = {
+    model: result.judgeModel,
+    degraded: result.judgeDegraded,
+    error: result.judgeError,
+    truncated: result.tierBTruncated ?? 0,
+  };
   warnOnJudgeFailure(result);
 
   // ---- observe mode: watch, record, change nothing -------------------------
