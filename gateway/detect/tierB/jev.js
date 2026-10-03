@@ -156,7 +156,11 @@ export async function judgeWithJev(text, tierA = [], { policy, signal } = {}) {
   const findings = [];
   const suppressed = [];
 
-  const hotFloor = policy?.thresholds?.sentence_hot_above ?? 0.6;
+  // How certain the gate must be before a sentence is treated as sensitive.
+  // This is the precision/recall dial: raise it and clean prompts stay clean
+  // but leaks slip through; lower it and the reverse. Overridable so the trade
+  // can be swept rather than guessed.
+  const hotFloor = Number(process.env.DLP_SENTENCE_HOT_ABOVE ?? policy?.thresholds?.sentence_hot_above ?? 0.6);
 
   sents.forEach((s, i) => {
     // The gate decides whether the sentence is sensitive at all; the Choice
