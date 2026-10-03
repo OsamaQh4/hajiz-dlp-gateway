@@ -354,6 +354,14 @@ Deliberately **not** built — described as the productionization roadmap:
   decides what a wrong answer costs.
 - **Pseudonymization is not anonymization.** A prompt can stay re-identifiable through
   context alone; the placeholder removes the identifier, not the story around it.
+- **The conversation the model remembers is not the conversation that happened.** A chat
+  client resends its whole history on every turn, and the gateway re-inspects all of it
+  each time - so what the model sees is the history *as the current policy renders it*.
+  Change a policy mid-session and the model's past changes with it. Observed live: a
+  credential that genuinely had reached the provider was redacted on later turns, and the
+  agent then retracted a true statement about having seen it, because the evidence was no
+  longer in front of it. A model's self-reports are testimony about what reached it, not
+  about what the gateway did.
 - **The dashboard shows plaintext in demo mode.** In a real deployment that is off — the
   whole point is that the plaintext never travels anywhere.
 - **The judge path has not been exercised against the live API in this environment**

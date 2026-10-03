@@ -22,7 +22,12 @@ name: Default enterprise policy
 # a live coding agent.
 actions:
   secret: block
-  credentials: block
+  # Redacted rather than blocked, so a credential already sitting in a file the
+  # agent read does not kill every later turn of the conversation. The secret
+  # still never leaves - a redaction keeps no vault entry and is never restored.
+  # Switch back to `block` for the stricter posture, at the cost of a session
+  # that stays dead until the offending file changes.
+  credentials: redact
 
   national_id: pseudonymize
   iban: pseudonymize
