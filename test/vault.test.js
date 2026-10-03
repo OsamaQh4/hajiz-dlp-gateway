@@ -75,6 +75,43 @@ test('unknown placeholders pass through untouched', () => {
   assert.equal(vault.rehydrate('s1', 'see PERSON_9 and ORG_4'), 'see PERSON_9 and ORG_4');
 });
 
+test('a placeholder the model reformatted is still restored', () => {
+  // Models do not always echo a placeholder verbatim. A missed match is not a
+  // leak - it is worse in a different way: the employee is shown `person_1`
+  // where the real name belongs, and the product silently fails its promise.
+  const vault = new Vault();
+  const findings = findingsFor('mail a@b.sa');
+  const { text: sanitized } = vault.tokenize('s1', 'mail a@b.sa', findings);
+  const token = sanitized.match(/EMAIL_\d+/)[0];
+
+  for (const variant of [token, token.toLowerCase(), token.replace('_', ' '), token.replace(/^(\w)(\w+)/, (m, a, b) => a + b.toLowerCase())]) {
+    assert.equal(
+      vault.rehydrate('s1', `sent to ${variant} now`),
+      'sent to a@b.sa now',
+      `failed to restore the variant ${variant}`,
+    );
+  }
+});
+
+test('a placeholder we never minted is left alone, whatever its case', () => {
+  const vault = new Vault();
+  vault.tokenize('s1', 'mail a@b.sa', findingsFor('mail a@b.sa'));
+  assert.equal(vault.rehydrate('s1', 'see PERSON_9 and person 4'), 'see PERSON_9 and person 4');
+});
+
+test('streaming restores a lowercase placeholder split across chunks', () => {
+  const vault = new Vault();
+  const findings = findingsFor('mail a@b.sa');
+  const { text: sanitized } = vault.tokenize('s1', 'mail a@b.sa', findings);
+  const token = sanitized.match(/EMAIL_\d+/)[0].toLowerCase();
+
+  const stream = vault.streamRehydrator('s1');
+  let out = '';
+  for (const ch of `ping ${token} done`) out += stream.push(ch);
+  out += stream.flush();
+  assert.equal(out, 'ping a@b.sa done');
+});
+
 test('vault mappings encrypt and decrypt with AES-256-GCM', () => {
   const key = '11'.repeat(32);
   const vault = new Vault({ keyHex: key });

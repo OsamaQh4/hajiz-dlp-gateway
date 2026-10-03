@@ -36,7 +36,20 @@ const PREFIX_BY_CLASS = {
 };
 
 const PREFIXES = [...new Set(Object.values(PREFIX_BY_CLASS))];
-export const TOKEN_RE = new RegExp(`\\b(?:${PREFIXES.join('|')})_\\d+\\b`, 'g');
+
+/**
+ * Models do not always echo a placeholder verbatim - they lowercase it, or
+ * render `PERSON_1` as `PERSON 1` inside prose. A missed match is not a data
+ * leak, it is the opposite: the employee is shown `person_1` where the real
+ * name should be, and the product's whole promise quietly fails.
+ *
+ * So match loosely, then canonicalize before looking the token up. Because only
+ * tokens this session actually minted are ever substituted, a stray "person 1"
+ * in someone's own text is left alone.
+ */
+export const TOKEN_RE = new RegExp(`\\b(?:${PREFIXES.join('|')})[_ ]\\d+\\b`, 'gi');
+
+const canonical = (match) => match.replace(/[_ ]/, '_').toUpperCase();
 
 /** Longest placeholder we could ever emit; bounds the streaming hold-back. */
 const MAX_TOKEN_LEN = 40;
@@ -113,7 +126,10 @@ export class Vault {
     if (!text) return text;
     const s = this.#sessions.get(sessionId);
     if (!s) return text;
-    return text.replace(TOKEN_RE, (tok) => (s.byToken.has(tok) ? s.byToken.get(tok) : tok));
+    return text.replace(TOKEN_RE, (tok) => {
+      const key = canonical(tok);
+      return s.byToken.has(key) ? s.byToken.get(key) : tok;
+    });
   }
 
   /** A stateful rehydrator for streamed responses. */
@@ -182,7 +198,10 @@ export class StreamRehydrator {
     if (!chunk) return '';
     this.#buffer += chunk;
     let cut = this.#buffer.length;
-    const m = /[A-Z][A-Z0-9_]*$/.exec(this.#buffer);
+    // Case-insensitive, and allows the space form, to match what rehydrate()
+    // accepts - otherwise a lowercase placeholder splits across chunks and
+    // escapes the hold-back.
+    const m = /[A-Za-z][A-Za-z0-9_]*[_ ]?\d*$/.exec(this.#buffer);
     if (m && this.#buffer.length - m.index <= MAX_TOKEN_LEN) cut = m.index;
     const emit = this.#buffer.slice(0, cut);
     this.#buffer = this.#buffer.slice(cut);
