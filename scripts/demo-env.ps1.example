@@ -13,10 +13,20 @@
 $env:DLP_UPSTREAM_MODE = "mock"
 
 # --- judge: an open model standing in for the on-prem one -------------------
+# The ":free" variants are shared and rate-limit hard; the paid endpoint costs
+# pennies for a full benchmark run and does not fail mid-demo.
 $env:DLP_JUDGE_PROVIDER = "local"
 $env:DLP_JUDGE_BASE_URL = "https://openrouter.ai/api/v1"
-$env:DLP_JUDGE_MODEL    = "google/gemma-4-26b-a4b-it:free"
-$env:DLP_JUDGE_API_KEY  = "sk-or-v1-PUT-YOUR-REAL-KEY-HERE"
+$env:DLP_JUDGE_MODEL    = "google/gemma-4-26b-a4b-it"
+
+# Reuse OPENROUTER_API_KEY when the terminal already has one, so sourcing this
+# file can never overwrite a working key with a stale copy. That exact mistake
+# produced 28 straight 401s and a benchmark run that had to be thrown away.
+if ($env:OPENROUTER_API_KEY) {
+  $env:DLP_JUDGE_API_KEY = $env:OPENROUTER_API_KEY
+} else {
+  $env:DLP_JUDGE_API_KEY = "sk-or-v1-PUT-YOUR-REAL-KEY-HERE"
+}
 
 # --- for the real on-prem judge, use these instead ---------------------------
 # $env:DLP_JUDGE_PROVIDER = "local"
