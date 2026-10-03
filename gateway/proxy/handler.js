@@ -235,7 +235,12 @@ function blockMessage(decision) {
 }
 
 function requestApproval({ requestId, sessionId, group, decision, joined, policy, sanitizedPreview }) {
-  const waitMs = policy?.escalation?.wait_for_human_ms ?? config.escalationTimeoutMs;
+  // Policy is the source of truth, but an explicit env override lets a test run
+  // shorten the hold without editing the file an organization owns. Agent
+  // traffic cannot tolerate a 90-second pause mid-task.
+  const waitMs = process.env.DLP_ESCALATION_TIMEOUT_MS
+    ? Number(process.env.DLP_ESCALATION_TIMEOUT_MS)
+    : (policy?.escalation?.wait_for_human_ms ?? config.escalationTimeoutMs);
 
   return new Promise((resolve) => {
     const timer = setTimeout(async () => {
