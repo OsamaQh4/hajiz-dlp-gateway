@@ -198,6 +198,42 @@ on it; a flat distribution across three classes means it cannot.
 
 ---
 
+## All three primitives have a job here
+
+Jev is not only a yes/no gate. Each question type maps onto a decision the
+gateway already makes badly or not at all.
+
+| Primitive | Our use | What it replaces |
+|---|---|---|
+| **Noul** | Gate: "does this prompt reveal anything non-public?" and per-sentence semantic checks | The generative judge's first pass |
+| **Choice** | Classify a candidate span into the taxonomy, or `none` — with options drawn from spans Tier A already located | The judge's class labelling, *and* its span hallucinations, which become structurally impossible |
+| **Score** | **Severity**, on an ordered scale | Nothing. We have no severity concept at all today. |
+
+The third is the real upgrade. `policy.yaml` currently maps class → action, which
+is crude: a customer's name and a live private key are both "a class", and the
+action table has to pretend the difference is categorical. A Score question
+returns an ordered severity with a distribution behind it, so the action can
+depend on **how damaging** a disclosure would be rather than **what kind** it is:
+
+```
+0  public, already disclosed           -> allow
+1  internal but routine                -> pseudonymize
+2  confidential business information   -> pseudonymize
+3  regulated personal data or MNPI     -> escalate
+4  credentials or an unfixed weakness  -> block
+```
+
+That is a better policy model than the one we shipped, and it falls out of using
+the right primitive rather than from more code.
+
+### Fan-out is already answered
+
+TypeSafe's published recipes report **475 answers in 1.2 s** (5 questions across
+95 messages) and **96 answers in 0.5 s** (4 checks on each of 24 tool calls, one
+request). Our 10-30 candidates per request is nowhere near a limit. Test 6 below
+is still worth running — our states are far larger than theirs and our questions
+are domain-specific - but the feasibility risk is now low.
+
 ## Test 6 — Fan-out (the feasibility test)
 
 **This is the one that decides whether the architecture is affordable.** Tier A
@@ -231,6 +267,66 @@ quarter label and a generic word — and should be **low**.
 Compare the latency against a single-question call. If ten questions cost
 roughly what one costs, this replaces our entire Tier B with one round trip per
 request. If latency scales linearly with question count, it does not.
+
+### Test 6b — the shape we would actually ship
+
+This exercises all three primitives in one request, exactly as the gateway
+would: a gate, per-candidate classification over spans Tier A located, severity
+scoring, and sentence-level checks for semantic leakage that no regex nominates.
+Running it *is* the prototype's first measurement.
+
+```json
+{
+  "model": "typesafe/jev-1.13",
+  "state": {
+    "description": "An outbound prompt an employee is about to send to an external AI assistant. Judge only from `prompt`.",
+    "prompt": "Customer Ahmed Al-Otaibi (ID 1098765439) emailed a.alotaibi@example.com.sa about Project Falcon failing auth on auth-01.corp.internal. We are acquiring Saned next quarter and it is not yet public. Q3 came in at SAR 412 million, well under the plan we filed."
+  },
+  "questions": {
+    "gate": {
+      "type": "noul",
+      "instructions": "The prompt reveals something about the organization that is not already public.",
+      "criteria": {
+        "true": "It names an identified person or customer, an internal project, undisclosed financials, a planned change such as redundancies or an acquisition, a security weakness, or a credential.",
+        "false": "Routine correspondence or a general request, mentioning people, places or products without revealing anything non-public about them."
+      }
+    },
+
+    "cls_id":      { "type": "choice", "instructions": "Classify the span \"1098765439\" as it is used in this prompt.", "criteria": { "personal_identifier": "A government or account identifier belonging to a person.", "financial": "An undisclosed financial figure.", "infrastructure": "A host, address or internal system.", "none": "Not sensitive in this context." } },
+    "cls_email":   { "type": "choice", "instructions": "Classify the span \"a.alotaibi@example.com.sa\" as it is used in this prompt.", "criteria": { "contact_detail": "Contact details identifying a person.", "personal_identifier": "A government or account identifier.", "none": "Not sensitive in this context." } },
+    "cls_host":    { "type": "choice", "instructions": "Classify the span \"auth-01.corp.internal\" as it is used in this prompt.", "criteria": { "infrastructure": "An internal host, address or system name.", "project": "An internal project or product name.", "none": "Not sensitive in this context." } },
+    "cls_falcon":  { "type": "choice", "instructions": "Classify the span \"Project Falcon\" as it is used in this prompt.", "criteria": { "project": "An internal project, codename or unreleased product.", "infrastructure": "An internal host or system.", "none": "Not sensitive in this context." } },
+    "cls_saned":   { "type": "choice", "instructions": "Classify the span \"Saned\" as it is used in this prompt.", "criteria": { "strategic": "A party to an undisclosed deal, acquisition or negotiation.", "project": "An internal project or product name.", "none": "Not sensitive in this context." } },
+
+    "cls_q3":      { "type": "choice", "instructions": "Classify the span \"Q3\" as it is used in this prompt.", "criteria": { "financial": "An undisclosed financial figure or result.", "strategic": "An undisclosed plan or deal.", "none": "A generic label that reveals nothing on its own." } },
+    "cls_auth":    { "type": "choice", "instructions": "Classify the span \"auth\" as it is used in this prompt.", "criteria": { "infrastructure": "An internal host or system name.", "vulnerability": "An undisclosed security weakness.", "none": "A generic technical word that reveals nothing on its own." } },
+
+    "sent_deal":   { "type": "noul", "instructions": "The sentence \"We are acquiring Saned next quarter and it is not yet public\" reveals a non-public plan." },
+    "sent_fin":    { "type": "noul", "instructions": "The sentence \"Q3 came in at SAR 412 million, well under the plan we filed\" reveals undisclosed financial results." },
+
+    "severity": {
+      "type": "score",
+      "instructions": "How damaging would it be if this prompt left the organization unchanged?",
+      "criteria": [
+        "Public or already disclosed; no impact.",
+        "Internal but routine; mild embarrassment at worst.",
+        "Confidential business information; competitive or contractual harm.",
+        "Regulated personal data or material non-public information; legal and regulatory exposure.",
+        "Credentials, keys or an unfixed security weakness; immediate operational risk."
+      ]
+    }
+  }
+}
+```
+
+**Expected:** `gate` high. The five `cls_*` candidates classified, none of them
+`none`. **`cls_q3` and `cls_auth` should both come back `none`** — they are the
+distractors, and if they are classified as sensitive the per-candidate approach
+over-triggers exactly as Tier A did. Both sentence nouls high. `severity` at 3 or
+4, given the prompt carries a national ID *and* material non-public information.
+
+Record total latency for all twelve questions and compare against the ~500 ms
+single-question baseline.
 
 ---
 
