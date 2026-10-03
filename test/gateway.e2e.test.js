@@ -26,6 +26,15 @@ before(async () => {
       DLP_UPSTREAM_MODE: 'mock',
       DLP_AUDIT_LOG: path.join(tmp, 'audit.jsonl'),
       DLP_ESCALATION_TIMEOUT_MS: '1500',
+      // Pin the judge explicitly and strip every ambient credential. Inheriting
+      // the shell's keys would make the suite spend money and depend on the
+      // network, and these tests exercise the degraded path on purpose.
+      DLP_JUDGE_PROVIDER: 'local',
+      DLP_JUDGE_BASE_URL: 'http://127.0.0.1:1/v1',
+      DLP_JUDGE_RETRIES: '0',
+      DLP_JUDGE_TIMEOUT_MS: '600',
+      DLP_JUDGE_API_KEY: '',
+      OPENROUTER_API_KEY: '',
       ANTHROPIC_API_KEY: '',
     },
     stdio: 'ignore',

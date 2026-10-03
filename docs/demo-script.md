@@ -73,10 +73,10 @@ node scripts/demo-client.js --scenario 2
 
 Point at the tiles.
 
-> "Tier A is regex and checksums: p50 is two hundredths of a millisecond. The LLM judge
-> only runs when there's prose long enough to hide something — that's this number here, so
-> most traffic never pays for it. That's the answer to 'doesn't an AI call on every prompt
-> kill latency'."
+> "Tier A is regex and checksums: p50 is two hundredths of a millisecond. The semantic
+> judge is a decision model, not a chatbot — it returns a probability, not prose, in
+> about four hundred milliseconds, and only on text long enough to hide something.
+> That is the answer to 'doesn't an AI call on every prompt kill latency'."
 
 Click **Verify audit chain**.
 

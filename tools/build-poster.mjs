@@ -296,17 +296,17 @@ function cell(ci, ri) {
 {
   const c = cell(0, 1);
   let cy = sectionHeading('Results', { x: c.x, y: c.y, width: c.w });
-  cy = text('Measured over a 33-prompt labeled corpus (15 deliberately benign), three consecutive runs, 99 judge calls.', {
+  cy = text('Measured over a 33-prompt labeled corpus (15 deliberately benign), three consecutive runs, 84 judge calls, none degraded.', {
     x: c.x, y: cy, size: 25, width: c.w, color: MUTED,
   });
   cy -= 30;
 
   const rows = [
     ['', 'Tier A', 'Tier B'],
-    ['Precision', '100.0%', '91.7%'],
-    ['Recall', '100.0%', '100.0%'],
+    ['Precision', '100.0%', '90.9%'],
+    ['Recall', '100.0%', '90.9%'],
     ['False alarms on 15 clean prompts', '0', '0'],
-    ['Median latency', '0.12 ms', '1.4 s'],
+    ['Median latency', '0.12 ms', '0.41 s'],
     ['Degraded / failed calls', '-', '0 of 99'],
   ];
   const cw = [c.w * 0.5, c.w * 0.25, c.w * 0.25];
@@ -330,7 +330,7 @@ function cell(ci, ri) {
 
   cy = bullets([
     'Combined across both tiers: precision 96.6%, recall 93.3%, F1 94.9%.',
-    'Stability: 30 of 30 expectations were found in every run, with identical findings each time - a control that catches a different subset each run is unusable for audit even at a good average rate.',
+    'Stability: the semantic tier returned identical findings on every run. A control that catches a different subset each time is unusable for audit even at a good average rate.',
     'Tier B recall is span-level. The gap to strict-class recall is category disagreement, not missed data, and every such error resolved toward human review rather than under-protection.',
   ], { x: c.x, y: cy, size: 25, width: c.w, gap: 11 });
 

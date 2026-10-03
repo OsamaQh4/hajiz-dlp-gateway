@@ -47,7 +47,17 @@ export const config = {
    * data-residency path, where no prompt text leaves the building at all.
    */
   judge: {
-    provider: process.env.DLP_JUDGE_PROVIDER || 'anthropic',
+    /**
+     * jev       - a decision model. The default: 2.3x faster at the median and
+     *             5.8x at p95, it returns the same findings on every run, its
+     *             confidence is calibrated rather than self-reported, and it
+     *             cannot hallucinate a span because it only ever chooses among
+     *             options we supply. It costs about nine points of span recall
+     *             against a generative judge, which is the trade.
+     * anthropic - a generative judge through the official SDK.
+     * local     - any OpenAI-compatible server the organization runs itself.
+     */
+    provider: process.env.DLP_JUDGE_PROVIDER || 'jev',
     // Swap to claude-haiku-4-5 or claude-sonnet-5 to trade judge accuracy for
     // latency and cost on high-volume deployments.
     model: process.env.DLP_JUDGE_MODEL || 'claude-opus-5',

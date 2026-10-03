@@ -282,7 +282,7 @@ Tier A already located, so a fabricated finding is not filtered out afterwards,
 it is inexpressible. Its confidence is calibrated rather than self-reported,
 which is what the policy thresholds branch on.
 
-**Detail below is the generative judge** (`google/gemma-4-26b-a4b-it`, 3 runs, 99 calls, 0 degraded)
+**Jev is the default.** The detail below is the generative judge (`google/gemma-4-26b-a4b-it`, 3 runs, 99 calls, 0 degraded), kept for comparison; set `DLP_JUDGE_PROVIDER=anthropic` or `local` to use one.
 
 | | |
 |---|---|

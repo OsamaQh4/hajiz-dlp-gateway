@@ -53,6 +53,8 @@ before(async () => {
       DLP_JUDGE_BASE_URL: 'http://127.0.0.1:1/v1', // unreachable on purpose
       DLP_JUDGE_RETRIES: '0',
       DLP_JUDGE_TIMEOUT_MS: '600',
+      DLP_JUDGE_API_KEY: '',
+      OPENROUTER_API_KEY: '',
       ANTHROPIC_API_KEY: 'test-key',
     },
     stdio: 'ignore',
