@@ -265,7 +265,7 @@ function cell(ci, ri) {
   const boxes = [
     ['Employee', 'VDI / IDE'],
     ['Tier A', 'regex + checksums'],
-    ['Tier B', 'LLM judge'],
+    ['Tier B', 'decision model'],
     ['Policy', '4 actions'],
     ['Vault', 'placeholders'],
   ];
@@ -286,7 +286,7 @@ function cell(ci, ri) {
 
   cy = bullets([
     'Tier A - deterministic. Saudi national ID and Iqama (Luhn check digit), IBAN (mod-97), payment cards, provider API keys, private keys, connection strings, internal hosts, and the organization\'s own codename watchlist. Sub-millisecond; it carries most traffic.',
-    'Tier B - semantic. An LLM judge runs only when there is prose long enough to hide meaning a pattern cannot see. It returns spans, classes, confidence and a rationale under a strict schema; its input is wrapped as untrusted data, and every span it reports is located in the text by the gateway, so hallucinated spans are discarded.',
+    'Tier B - semantic. A decision model, not a chatbot: it returns calibrated probabilities rather than prose, in about 0.4 seconds, and only on text long enough to hide meaning a pattern cannot see. It never writes a span - it chooses among sentences the gateway split and spans Tier A already located - so a fabricated finding is not filtered out afterwards, it cannot be expressed at all.',
     'Policy engine - allow, pseudonymize, escalate to a human, or block; per-group overrides in one readable YAML file.',
     'Token vault - session-stable placeholders, AES-256-GCM, never leaving the tenant. A hash-chained audit log records classes and decisions, never the values it protected.',
   ], { x: c.x, y: cy, size: 25, width: c.w, gap: 12 });
@@ -307,7 +307,7 @@ function cell(ci, ri) {
     ['Recall', '100.0%', '90.9%'],
     ['False alarms on 15 clean prompts', '0', '0'],
     ['Median latency', '0.12 ms', '0.41 s'],
-    ['Degraded / failed calls', '-', '0 of 99'],
+    ['Degraded / failed calls', '-', '0 of 84'],
   ];
   const cw = [c.w * 0.5, c.w * 0.25, c.w * 0.25];
   rows.forEach((r, i) => {
@@ -329,7 +329,7 @@ function cell(ci, ri) {
   cy -= rows.length * 46 + 16;
 
   cy = bullets([
-    'Combined across both tiers: precision 96.6%, recall 93.3%, F1 94.9%.',
+    'Combined across both tiers: precision 96.4%, recall 90.0%, F1 93.1%.',
     'Stability: the semantic tier returned identical findings on every run. A control that catches a different subset each time is unusable for audit even at a good average rate.',
     'Tier B recall is span-level. The gap to strict-class recall is category disagreement, not missed data, and every such error resolved toward human review rather than under-protection.',
   ], { x: c.x, y: cy, size: 25, width: c.w, gap: 11 });
