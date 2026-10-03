@@ -164,12 +164,19 @@ export const anthropicAdapter = {
     return serialize({ event, data });
   },
 
+  /**
+   * A policy block is not an authentication problem, and the status code has to
+   * say so. Returning 403 made Claude Code print "Please run /login" above our
+   * message - in a real deployment that sends every blocked employee to the
+   * help desk convinced their account is broken. 400 carries the explanation
+   * without prescribing the wrong remedy.
+   */
   errorResponse(message, details) {
     return {
-      status: 403,
+      status: 400,
       body: {
         type: 'error',
-        error: { type: 'permission_error', message },
+        error: { type: 'invalid_request_error', message },
         dlp: details,
       },
     };
@@ -305,9 +312,9 @@ export const openaiAdapter = {
 
   errorResponse(message, details) {
     return {
-      status: 403,
+      status: 400,
       body: {
-        error: { message, type: 'permission_error', code: 'dlp_blocked' },
+        error: { message, type: 'invalid_request_error', code: 'dlp_blocked' },
         dlp: details,
       },
     };

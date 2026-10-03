@@ -86,7 +86,7 @@ test('a leaked API key is blocked outright and never forwarded', async () => {
   const res = await send(
     'Why does this fail? apiKey: "sk-ant-api03-Zx8Q2vK9mB4nR7tW1cY6hL0pS5dF3gJ8aE2uI9oP4kN7mQ1wX"',
   );
-  assert.equal(res.status, 403);
+  assert.equal(res.status, 400);
   const json = await res.json();
   assert.match(json.error.message, /data policy/i);
   assert.ok(json.dlp.classes.includes('secret'));
@@ -173,7 +173,7 @@ test('an unanswered escalation times out closed - the prompt is not sent', async
     'Confidential: we are acquiring a competitor next quarter and the diligence is not finished, draft the note.',
     { session: 'esc2' },
   );
-  assert.equal(res.status, 403);
+  assert.equal(res.status, 400);
 });
 
 test('the audit log verifies after a full run', async () => {
