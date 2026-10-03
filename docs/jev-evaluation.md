@@ -452,6 +452,41 @@ Three for three. **Build it.**
   deck - the discriminating power lives in prose a security team can edit, not
   in weights.
 
+### Pseudonymization probe — 6 of 6, and it found two shipping defects
+
+Six questions, one request, 842 ms.
+
+| Question | Answer | Conf | |
+|---|---|---|---|
+| `coref` — which placeholder does a bare surname refer to? | `PERSON_1` | 1.00 | ✔ |
+| `coref_matters` — does the unsubstituted surname still identify? | **87.0%** | — | ✔ |
+| `residual_leak` — does anything non-public survive substitution? | **96.0%** | — | ✔ |
+| `residual_what` — what survives? | `acquisition` | 0.98 | ✔ |
+| `utility_sanitized` | level 3.13 | 0.76 | ✔ |
+| `utility_over_redacted` | level 2.05 | 0.70 | ✔ |
+
+**Defect 1 — the vault leaks second mentions.** It keys placeholders by exact
+string, so "Ahmed Al-Otaibi" is substituted and a later bare "Al-Otaibi" is not.
+Jev resolves the coreference at 1.00 confidence, choosing only from placeholders
+already minted, so it cannot invent an entity. Confirmed at 87% that the
+leftover surname still identifies the customer.
+
+**Defect 2 — pseudonymization protects identifiers, not facts.** After
+substitution the prompt still reads *"We are acquiring ORG_1 next quarter and it
+is not yet public."* The counterparty is masked; the deal is not. Jev scores the
+residual leak at 96% and names it as `acquisition` at 0.98.
+
+Policy partly covers this already - `strategic: escalate` fires when the judge
+returns the *sentence* as a finding. But when it returns only the entity, we
+substitute and forward the leak. A verification pass is independent of whether
+span-level detection caught the semantic case, which is exactly why it is worth
+having.
+
+**The utility metric works, but weakly.** 3.13 against 2.05 is about one level of
+separation, with the lowest confidences in the whole evaluation (0.76, 0.70).
+Judging usefulness is genuinely more subjective than identifying an acquisition.
+It is usable as a regression signal, not as a headline number.
+
 ### Remaining
 
 | Test | Expected | p(yes) | Latency | Cost | Verdict |
