@@ -191,20 +191,40 @@ export class Vault {
     return { text: out, mappings, ambiguousAliases: ambiguous };
   }
 
-  /** Swap placeholders back to real values in a complete string. */
-  rehydrate(sessionId, text) {
+  /**
+   * Swap placeholders back to real values in a complete string.
+   *
+   * `json: true` escapes the replacement, because the text being patched is
+   * inside a JSON string literal. A placeholder is always safe characters, but
+   * the value behind it may contain a quote, backslash or newline - splicing
+   * that in raw would corrupt the document the client is parsing.
+   */
+  rehydrate(sessionId, text, { json = false } = {}) {
     if (!text) return text;
     const s = this.#sessions.get(sessionId);
     if (!s) return text;
     return text.replace(TOKEN_RE, (tok) => {
       const key = canonical(tok);
-      return s.byToken.has(key) ? s.byToken.get(key) : tok;
+      if (!s.byToken.has(key)) return tok;
+      const value = s.byToken.get(key);
+      return json ? JSON.stringify(value).slice(1, -1) : value;
     });
   }
 
   /** A stateful rehydrator for streamed responses. */
-  streamRehydrator(sessionId) {
-    return new StreamRehydrator(this, sessionId);
+  streamRehydrator(sessionId, opts = {}) {
+    return new StreamRehydrator(this, sessionId, opts);
+  }
+
+  /**
+   * Per-content-block rehydrators for one streamed response.
+   *
+   * A reply interleaves prose with tool-call arguments, and each content block
+   * needs its own hold-back buffer - and its own escaping rule, since tool
+   * arguments arrive as fragments of a JSON string while prose does not.
+   */
+  streamContext(sessionId) {
+    return new StreamContext(this, sessionId);
   }
 
   sweep(now = Date.now()) {
@@ -256,12 +276,45 @@ export class Vault {
  * "ECT_1"), so we hold back any trailing run that could still grow into a
  * token and release it once we know it cannot.
  */
-export class StreamRehydrator {
-  #buffer = '';
+/**
+ * Holds one rehydrator per content block of a streamed reply, so prose and
+ * tool-call arguments do not share a hold-back buffer or an escaping rule.
+ */
+export class StreamContext {
+  #byIndex = new Map();
 
   constructor(vault, sessionId) {
     this.vault = vault;
     this.sessionId = sessionId;
+  }
+
+  /** @param {number} index @param {{json?:boolean}} opts */
+  for(index, opts = {}) {
+    const key = `${index ?? 0}`;
+    if (!this.#byIndex.has(key)) {
+      this.#byIndex.set(key, new StreamRehydrator(this.vault, this.sessionId, opts));
+    }
+    return this.#byIndex.get(key);
+  }
+
+  /** Release whatever every block is still holding back. */
+  flushAll() {
+    const out = [];
+    for (const [index, r] of this.#byIndex) {
+      const tail = r.flush();
+      if (tail) out.push({ index: Number(index), text: tail });
+    }
+    return out;
+  }
+}
+
+export class StreamRehydrator {
+  #buffer = '';
+
+  constructor(vault, sessionId, { json = false } = {}) {
+    this.vault = vault;
+    this.sessionId = sessionId;
+    this.json = json;
   }
 
   push(chunk) {
@@ -275,13 +328,13 @@ export class StreamRehydrator {
     if (m && this.#buffer.length - m.index <= MAX_TOKEN_LEN) cut = m.index;
     const emit = this.#buffer.slice(0, cut);
     this.#buffer = this.#buffer.slice(cut);
-    return this.vault.rehydrate(this.sessionId, emit);
+    return this.vault.rehydrate(this.sessionId, emit, { json: this.json });
   }
 
   flush() {
     const rest = this.#buffer;
     this.#buffer = '';
-    return this.vault.rehydrate(this.sessionId, rest);
+    return this.vault.rehydrate(this.sessionId, rest, { json: this.json });
   }
 }
 

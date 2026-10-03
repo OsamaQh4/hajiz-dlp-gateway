@@ -12,6 +12,19 @@ import { serialize } from './sse.js';
 
 const isTextBlock = (b) => b && typeof b === 'object' && b.type === 'text' && typeof b.text === 'string';
 
+/** Restore placeholders in every string of an already-parsed value. */
+function rehydrateDeep(value, rehydrate) {
+  if (typeof value === 'string') return rehydrate(value);
+  if (Array.isArray(value)) return value.map((v) => rehydrateDeep(v, rehydrate));
+  if (value && typeof value === 'object') {
+    const out = {};
+    // Keys can carry a placeholder too - a tool argument named after a project.
+    for (const [k, v] of Object.entries(value)) out[rehydrate(k)] = rehydrateDeep(v, rehydrate);
+    return out;
+  }
+  return value;
+}
+
 /** Collect editable text spans out of a request body. */
 function collectContent(content, push) {
   if (typeof content === 'string') return; // handled by caller (needs the parent ref)
@@ -89,12 +102,15 @@ export const anthropicAdapter = {
   rehydrateResponse(json, rehydrate) {
     for (const block of json?.content ?? []) {
       if (isTextBlock(block)) block.text = rehydrate(block.text);
+      // A tool call carries the agent's actual work. Leaving placeholders here
+      // means the agent writes PERSON_1 into a file on disk.
+      else if (block?.type === 'tool_use') block.input = rehydrateDeep(block.input, rehydrate);
     }
     return json;
   },
 
   /** @returns {string} bytes to forward downstream for this upstream event */
-  rewriteEvent({ event, data }, rehydrator) {
+  rewriteEvent({ event, data }, ctx) {
     if (data === '[DONE]') return serialize({ event, data });
     let payload;
     try {
@@ -103,27 +119,42 @@ export const anthropicAdapter = {
       return serialize({ event, data }); // pass through anything we can't read
     }
 
-    if (payload.type === 'content_block_delta' && payload.delta?.type === 'text_delta') {
-      payload.delta.text = rehydrator.push(payload.delta.text);
+    const index = payload.index ?? 0;
+
+    // Remember which blocks carry tool arguments: those arrive as fragments of
+    // a JSON string, so replacements in them have to be escaped.
+    if (payload.type === 'content_block_start') {
+      const isTool = payload.content_block?.type === 'tool_use';
+      const r = ctx.for(index, { json: isTool });
+      if (isTextBlock(payload.content_block)) payload.content_block.text = r.push(payload.content_block.text);
       return serialize({ event, data: JSON.stringify(payload) });
     }
 
-    if (payload.type === 'content_block_start' && isTextBlock(payload.content_block)) {
-      payload.content_block.text = rehydrator.push(payload.content_block.text);
-      return serialize({ event, data: JSON.stringify(payload) });
+    if (payload.type === 'content_block_delta') {
+      const delta = payload.delta ?? {};
+      if (delta.type === 'text_delta') {
+        delta.text = ctx.for(index).push(delta.text);
+        return serialize({ event, data: JSON.stringify(payload) });
+      }
+      if (delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
+        delta.partial_json = ctx.for(index, { json: true }).push(delta.partial_json);
+        return serialize({ event, data: JSON.stringify(payload) });
+      }
+      return serialize({ event, data });
     }
 
     // The block is ending, so anything still held back can no longer grow into
     // a placeholder. Release it as one last delta before the stop event.
     if (payload.type === 'content_block_stop') {
-      const tail = rehydrator.flush();
+      const r = ctx.for(index);
+      const tail = r.flush();
       const prefix = tail
         ? serialize({
             event: 'content_block_delta',
             data: JSON.stringify({
               type: 'content_block_delta',
-              index: payload.index ?? 0,
-              delta: { type: 'text_delta', text: tail },
+              index,
+              delta: r.json ? { type: 'input_json_delta', partial_json: tail } : { type: 'text_delta', text: tail },
             }),
           })
         : '';
@@ -225,13 +256,19 @@ export const openaiAdapter = {
       if (typeof choice?.message?.content === 'string') {
         choice.message.content = rehydrate(choice.message.content);
       }
+      for (const call of choice?.message?.tool_calls ?? []) {
+        // Arguments are a JSON string, so patching them needs escaping.
+        if (typeof call?.function?.arguments === 'string') {
+          call.function.arguments = rehydrate(call.function.arguments, { json: true });
+        }
+      }
     }
     return json;
   },
 
-  rewriteEvent({ event, data }, rehydrator) {
+  rewriteEvent({ event, data }, ctx) {
     if (data === '[DONE]') {
-      const tail = rehydrator.flush();
+      const tail = ctx.flushAll().map((t) => t.text).join('');
       const prefix = tail
         ? serialize({
             event,
@@ -251,9 +288,16 @@ export const openaiAdapter = {
     }
     let touched = false;
     for (const choice of payload?.choices ?? []) {
+      const i = choice.index ?? 0;
       if (typeof choice?.delta?.content === 'string') {
-        choice.delta.content = rehydrator.push(choice.delta.content);
+        choice.delta.content = ctx.for(i).push(choice.delta.content);
         touched = true;
+      }
+      for (const call of choice?.delta?.tool_calls ?? []) {
+        if (typeof call?.function?.arguments === 'string') {
+          call.function.arguments = ctx.for(`${i}:tool${call.index ?? 0}`, { json: true }).push(call.function.arguments);
+          touched = true;
+        }
       }
     }
     return serialize({ event, data: touched ? JSON.stringify(payload) : data });

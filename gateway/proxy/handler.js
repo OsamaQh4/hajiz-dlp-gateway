@@ -72,7 +72,7 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
 
     if (isMock()) {
       return body.stream === true
-        ? sendMockStream(res, adapter, body, joined, vault.streamRehydrator(sessionId))
+        ? sendMockStream(res, adapter, body, joined, vault.streamContext(sessionId))
         : sendJson(res, 200, adapter.mockReply(body, joined));
     }
     if (!hasCredential(adapter, req)) return missingCredential(res, adapter, requestId, decision);
@@ -174,12 +174,12 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
   });
 
   // ---- forward -------------------------------------------------------------
-  const rehydrate = (t) => vault.rehydrate(sessionId, t);
+  const rehydrate = (t, opts) => vault.rehydrate(sessionId, t, opts);
   const wantsStream = body.stream === true;
 
   if (isMock()) {
     return wantsStream
-      ? sendMockStream(res, adapter, body, sanitized, vault.streamRehydrator(sessionId))
+      ? sendMockStream(res, adapter, body, sanitized, vault.streamContext(sessionId))
       : sendJson(res, 200, adapter.rehydrateResponse(adapter.mockReply(body, sanitized), rehydrate));
   }
 
@@ -188,7 +188,7 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
   try {
     const upstream = await forward({ adapter, req, body });
     if (wantsStream && upstream.ok && /text\/event-stream/.test(upstream.headers.get('content-type') || '')) {
-      return pipeStream(res, upstream, adapter, vault.streamRehydrator(sessionId));
+      return pipeStream(res, upstream, adapter, vault.streamContext(sessionId));
     }
     const text = await upstream.text();
     let payload;
@@ -368,7 +368,7 @@ async function forward({ adapter, req, body }) {
   return fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
 }
 
-async function pipeStream(res, upstream, adapter, rehydrator) {
+async function pipeStream(res, upstream, adapter, ctx) {
   res.writeHead(200, {
     'content-type': 'text/event-stream',
     'cache-control': 'no-cache',
@@ -382,25 +382,26 @@ async function pipeStream(res, upstream, adapter, rehydrator) {
       const { value, done } = await reader.read();
       if (done) break;
       for (const evt of parser.push(decoder.decode(value, { stream: true }))) {
-        res.write(adapter.rewriteEvent(evt, rehydrator));
+        res.write(adapter.rewriteEvent(evt, ctx));
       }
     }
-    for (const evt of parser.flush()) res.write(adapter.rewriteEvent(evt, rehydrator));
-    const tail = rehydrator.flush();
-    if (tail) res.write(serialize({ event: 'dlp_tail', data: JSON.stringify({ text: tail }) }));
+    for (const evt of parser.flush()) res.write(adapter.rewriteEvent(evt, ctx));
+    for (const tail of ctx.flushAll()) {
+      res.write(serialize({ event: 'dlp_tail', data: JSON.stringify(tail) }));
+    }
   } finally {
     res.end();
   }
 }
 
-async function sendMockStream(res, adapter, body, sanitized, rehydrator) {
+async function sendMockStream(res, adapter, body, sanitized, ctx) {
   res.writeHead(200, {
     'content-type': 'text/event-stream',
     'cache-control': 'no-cache',
     connection: 'keep-alive',
   });
   for (const evt of adapter.mockStream(body, sanitized)) {
-    res.write(adapter.rewriteEvent(evt, rehydrator));
+    res.write(adapter.rewriteEvent(evt, ctx));
     await new Promise((r) => setTimeout(r, 12));
   }
   res.end();

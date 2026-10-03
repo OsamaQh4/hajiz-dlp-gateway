@@ -31,11 +31,11 @@ pretending the corpus number generalizes.
 then forwards the request completely unmodified. Nothing is rewritten, nothing
 is blocked, nothing waits on a human.
 
-**Do not switch to `enforce` while a live agent is connected.** In enforcement
-the gateway substitutes values inside the prompt. For a coding agent that means
-placeholders can end up written into your files — and the response rehydrator
-only restores text, not tool-call arguments. Enforcement is for chat clients,
-not for agents, until tool-input handling exists.
+**Tool-call arguments are now rehydrated**, so placeholders no longer end up
+written into your files. One blocker remains before enforcing on an agent:
+escalation *holds* a request for a human reviewer, which for an agent mid-task
+is a hang followed by an error. Until a non-blocking mode exists, enforce on
+chat-shaped traffic and observe on agents.
 
 **The kill switch** is one line in the client's terminal. If anything misbehaves:
 
