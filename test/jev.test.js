@@ -75,6 +75,32 @@ test('a short line is judged with its neighbours rather than discarded', () => {
   assert.equal(text.slice(credential.start, credential.end), credential.text, 'and a span tight to the secret');
 });
 
+test('every unit reports its raw gate value, whatever the threshold does', async () => {
+  // The gate value decides everything and used to be dropped on the floor,
+  // which made the one dial in the system unmeasurable: sweeping it meant
+  // re-running the whole corpus per candidate threshold. Reported raw now, so
+  // a sweep costs one pass and "why did this fire?" answers with a number.
+  const text = 'A genuinely long sentence that carries some actual content here. And a second one that is also quite long indeed.';
+  respond = (req) => {
+    const out = {};
+    for (const k of Object.keys(req.questions)) {
+      if (k.startsWith('hot_')) out[k] = { noul: k === 'hot_0' ? 0.92 : 0.21 };
+      if (k.startsWith('sent_')) out[k] = { choice: 'strategic', confidence: 0.88 };
+    }
+    return out;
+  };
+
+  const r = await judgeWithJev(text, [], { policy: { thresholds: { ...POLICY.thresholds, sentence_hot_above: 0.6 } } });
+
+  assert.equal(r.units.length, 2, 'both units report, not only the one that fired');
+  assert.equal(r.findings.length, 1, 'but only one clears the gate');
+
+  const cold = r.units.find((u) => u.hot === 0.21);
+  assert.ok(cold, 'the unit below the threshold still reports its value');
+  assert.equal(cold.cls, 'strategic', 'and the class it would have had');
+  assert.ok(!r.findings.some((f) => f.start === cold.start), 'without becoming a finding');
+});
+
 test('the benchmarked question is pinned, criteria included', async () => {
   // These strings are the measured artefact. A Noul weighs the two criteria
   // against each other, so a clause added to `true` makes `true` heavier for

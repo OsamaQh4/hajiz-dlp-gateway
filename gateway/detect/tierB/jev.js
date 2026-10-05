@@ -165,7 +165,7 @@ export async function judgeWithJev(text, tierA = [], { policy, signal } = {}) {
   const candidates = tierA.filter((f) => (f.confidence ?? 1) < adjudicateBelow);
 
   if (!sents.length && !candidates.length) {
-    return { findings: [], suppressed: [], gate: null, severity: null, truncated: 0, degraded: false, error: null, model: config.jev.model };
+    return { findings: [], suppressed: [], units: [], gate: null, severity: null, truncated: 0, degraded: false, error: null, model: config.jev.model };
   }
 
   const questions = {
@@ -228,6 +228,7 @@ export async function judgeWithJev(text, tierA = [], { policy, signal } = {}) {
     return {
       findings: [],
       suppressed: [],
+      units: [],
       gate: null,
       severity: null,
       truncated,
@@ -239,6 +240,7 @@ export async function judgeWithJev(text, tierA = [], { policy, signal } = {}) {
 
   const findings = [];
   const suppressed = [];
+  const units = [];
 
   // How certain the gate must be before a sentence is treated as sensitive.
   // This is the precision/recall dial: raise it and clean prompts stay clean
@@ -250,11 +252,27 @@ export async function judgeWithJev(text, tierA = [], { policy, signal } = {}) {
     // The gate decides whether the sentence is sensitive at all; the Choice
     // only names what kind. Classification never promotes a cold sentence.
     const hot = num(answers[`hot_${i}`]?.noul, 0);
-    if (hot < hotFloor) return;
-
     const a = answers[`sent_${i}`];
     const cls = a?.choice;
     const confidence = Math.min(hot, num(a?.confidence, 0));
+
+    // Every unit's raw answer, before any threshold touches it. The gate
+    // value used to be computed and dropped, which made `hotFloor` the one
+    // dial in the system that could not be measured without re-running the
+    // whole corpus per candidate threshold. Kept so a sweep costs one pass,
+    // and so "why did this fire?" has an answer that is a number.
+    units.push({
+      start: s.start,
+      end: s.end,
+      text: s.text,
+      hot,
+      cls: cls ?? null,
+      choiceConfidence: num(a?.confidence, 0),
+      confidence,
+      short: Boolean(s.context),
+    });
+
+    if (hot < hotFloor) return;
     if (!cls || cls === 'none' || !TAXONOMY[cls] || confidence < minConfidence) return;
     findings.push({
       start: s.start,
@@ -286,6 +304,7 @@ export async function judgeWithJev(text, tierA = [], { policy, signal } = {}) {
   return {
     findings,
     suppressed,
+    units,
     gate: num(answers.gate?.noul, null),
     severity: num(answers.severity?.score, null),
     truncated,
