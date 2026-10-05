@@ -15,7 +15,8 @@
     "doctor": "node scripts/doctor.js",
     "jev": "node tools/jev-test.mjs",
     "jev:pseudo": "node tools/jev-pseudo-test.mjs",
-    "gate-sweep": "node tools/gate-sweep.mjs"
+    "gate-sweep": "node tools/gate-sweep.mjs",
+    "salvage": "node tools/score-salvage.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
