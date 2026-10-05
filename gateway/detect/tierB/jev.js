@@ -103,16 +103,41 @@ export function sentences(text, { minChars = 30, contextChars = 200 } = {}) {
  * the question has to say the context is background, or the judge answers
  * about the context and the finding lands on the wrong span.
  */
-const hotQuestion = (s) => ({
-  type: 'noul',
-  instructions: s.context
-    ? `This line reveals something about the organization that is not already public: "${clip(s.text, 120)}". Judge that line only. It is shown here with the text around it purely as context: "${clip(s.context)}"`
-    : `This sentence reveals something about the organization that is not already public: "${clip(s.text)}"`,
-  criteria: {
-    true: 'It reveals an identified person or customer, an internal project or codename, undisclosed financials, a planned change such as redundancies or an acquisition, a security weakness, or a credential. A value that looks like a password, key or token counts even with no label in front of it. A place, facility, product or system counts only when the text also reveals something non-public about it.',
-    false: 'Routine correspondence, a general question, or a technical request. It mentions people, places, products or systems without revealing anything non-public about them. Naming a facility, product or technology on its own is not sensitive.',
-  },
-});
+const HOT_FALSE =
+  'Routine correspondence, a general question, or a technical request. It mentions people, places, products or systems without revealing anything non-public about them. Naming a facility, product or technology on its own is not sensitive.';
+
+/**
+ * The criteria the head-to-head benchmark was measured on. Not to be edited
+ * without re-running it: a Noul weighs the two descriptions against each other,
+ * so adding a clause to `true` makes `true` heavier for every sentence, not
+ * only for the sentences the clause is about.
+ *
+ * Measured. Appending "a value that looks like a password counts even with no
+ * label in front of it" here - correct, and aimed at short lines - cost span
+ * precision 90.9% -> 83.3% by flagging two long instruction sentences, "Write a
+ * one-page mitigation plan..." and "Help me explain the variance...", neither
+ * of which contains anything resembling a credential. Recall did not move. So
+ * the clause lives on the short-line variant below, where it is needed and
+ * where there is no long sentence for it to tip over.
+ */
+const HOT_TRUE_SENTENCE =
+  'It reveals an identified person or customer, an internal project or codename, undisclosed financials, a planned change such as redundancies or an acquisition, a security weakness, or a credential. A place, facility, product or system counts only when the sentence also reveals something non-public about it.';
+
+const HOT_TRUE_LINE =
+  'It reveals an identified person or customer, an internal project or codename, undisclosed financials, a planned change such as redundancies or an acquisition, a security weakness, or a credential. A value that looks like a password, key or token counts even with no label in front of it. A place, facility, product or system counts only when the text also reveals something non-public about it.';
+
+const hotQuestion = (s) =>
+  s.context
+    ? {
+        type: 'noul',
+        instructions: `This line reveals something about the organization that is not already public: "${clip(s.text, 120)}". Judge that line only. It is shown here with the text around it purely as context: "${clip(s.context)}"`,
+        criteria: { true: HOT_TRUE_LINE, false: HOT_FALSE },
+      }
+    : {
+        type: 'noul',
+        instructions: `This sentence reveals something about the organization that is not already public: "${clip(s.text)}"`,
+        criteria: { true: HOT_TRUE_SENTENCE, false: HOT_FALSE },
+      };
 
 const choice = (instructions, options) => ({
   type: 'choice',

@@ -75,6 +75,47 @@ test('a short line is judged with its neighbours rather than discarded', () => {
   assert.equal(text.slice(credential.start, credential.end), credential.text, 'and a span tight to the secret');
 });
 
+test('the benchmarked question is pinned, criteria included', async () => {
+  // These strings are the measured artefact. A Noul weighs the two criteria
+  // against each other, so a clause added to `true` makes `true` heavier for
+  // every sentence, not only the ones the clause describes - which is how a
+  // correct sentence about unlabelled passwords cost span precision 90.9% ->
+  // 83.3%, flagging two long instruction sentences containing no credential.
+  // Change these only together with a re-run of bench/run.js --judge.
+  respond = () => ({});
+  await judgeWithJev('A genuinely long sentence that carries some actual content here.', [], { policy: POLICY });
+
+  assert.equal(
+    lastRequest.questions.hot_0.instructions,
+    'This sentence reveals something about the organization that is not already public: "A genuinely long sentence that carries some actual content here."',
+  );
+  assert.equal(
+    lastRequest.questions.hot_0.criteria.true,
+    'It reveals an identified person or customer, an internal project or codename, undisclosed financials, a planned change such as redundancies or an acquisition, a security weakness, or a credential. A place, facility, product or system counts only when the sentence also reveals something non-public about it.',
+  );
+  assert.equal(
+    lastRequest.questions.hot_0.criteria.false,
+    'Routine correspondence, a general question, or a technical request. It mentions people, places, products or systems without revealing anything non-public about them. Naming a facility, product or technology on its own is not sensitive.',
+  );
+});
+
+test('only the short-line question carries the unlabelled-credential clause', async () => {
+  respond = () => ({});
+  await judgeWithJev('Email: someone@example.com\n7-2jkLm#qz\nA genuinely long sentence that carries some actual content here.', [], {
+    policy: POLICY,
+  });
+
+  const hot = Object.entries(lastRequest.questions).filter(([k]) => k.startsWith('hot_'));
+  const clause = 'no label in front of it';
+  const withClause = hot.filter(([, q]) => q.criteria.true.includes(clause));
+  const without = hot.filter(([, q]) => !q.criteria.true.includes(clause));
+
+  assert.ok(withClause.length, 'the short lines must get the clause');
+  assert.ok(withClause.every(([, q]) => q.instructions.includes('Judge that line only')));
+  assert.ok(without.length, 'the long sentence must not');
+  assert.ok(without.every(([, q]) => q.instructions.startsWith('This sentence reveals')));
+});
+
 test('a long sentence is asked about without context, in the benchmarked wording', () => {
   // The head-to-head numbers were measured on this phrasing. A unit that can
   // stand on its own must still produce the identical question, or the measured
