@@ -50,10 +50,19 @@ const overlaps = (a, b) => a.start < b.end && b.start < a.end;
 const pct = (n) => `${(n * 100).toFixed(1)}%`;
 const trim = (s, n = 52) => (s.length > n ? `${s.slice(0, n - 3).replace(/\s+/g, ' ')}...` : s.replace(/\s+/g, ' '));
 
-/** Where each expectation's text sits in the sample, so overlap can be judged. */
-const locate = (sample) =>
+/**
+ * Where each expectation's text sits in the sample, so overlap can be judged.
+ *
+ * Two sets, and conflating them was worth 19 points of precision. Recall is
+ * about the semantic expectations only, because the gate cannot reach Tier A.
+ * False alarms must be judged against *every* expectation, exactly as
+ * bench/run.js does: a sentence that happens to wrap a national ID is not the
+ * judge inventing something, and scoring it as a false alarm reported 48%
+ * precision where the bench measured 92% on the same corpus and the same model.
+ */
+const locate = (sample, tierBOnly) =>
   (sample.expect ?? [])
-    .filter((e) => e.tier === 'B')
+    .filter((e) => !tierBOnly || e.tier === 'B')
     .map((e) => {
       const start = sample.text.indexOf(e.text);
       return start === -1 ? null : { ...e, start, end: start + e.text.length };
@@ -83,7 +92,13 @@ for (let run = 0; run < RUNS; run += 1) {
       degraded += 1;
       continue;
     }
-    observations.push({ run, sample, expected: locate(sample), units: r.units ?? [] });
+    observations.push({
+      run,
+      sample,
+      expected: locate(sample, true),
+      allExpected: locate(sample, false),
+      units: r.units ?? [],
+    });
   }
 }
 if (RUNS > 1) process.stdout.write('                              \r\n');
@@ -109,7 +124,7 @@ const scoreAt = (t) => {
       else fn += 1;
     }
     for (const f of fired) {
-      if (o.expected.some((e) => overlaps(f, e))) continue;
+      if (o.allExpected.some((e) => overlaps(f, e))) continue;
       fp += 1;
       if (o.sample.kind === 'benign') benignFp += 1;
     }
@@ -152,9 +167,12 @@ if (RUNS > 1) {
   for (const o of observations) {
     for (const u of o.units) {
       const key = `${o.sample.id}\u0000${u.start}\u0000${u.end}`;
-      if (!byUnit.has(key)) byUnit.set(key, { sample: o.sample, text: u.text, short: u.short, hots: [], classes: new Set() });
+      if (!byUnit.has(key)) {
+        byUnit.set(key, { sample: o.sample, text: u.text, short: u.short, hots: [], classes: new Set(), runs: [] });
+      }
       const e = byUnit.get(key);
       e.hots.push(u.hot);
+      e.runs.push(u);
       if (u.cls) e.classes.add(u.cls);
     }
   }
@@ -164,28 +182,53 @@ if (RUNS > 1) {
     .map((e) => ({ ...e, lo: Math.min(...e.hots), hi: Math.max(...e.hots) }))
     .sort((a, b) => b.hi - b.lo - (a.hi - a.lo));
 
-  const flipped = moved.filter((e) => e.lo < current && e.hi >= current);
+  /**
+   * What actually matters is whether the unit becomes a finding, and the gate
+   * value is only one of three things that decide it. Tracking the gate alone
+   * reported "0 units crossed the threshold" in a run where bench/run.js had
+   * just shown a false alarm appearing in 1 of 3 - because the unit's *class*
+   * flipped between `none` and a real category while its gate value sat still.
+   * So the instability is measured on the whole predicate, and the cause named.
+   */
+  const unstable = [...byUnit.values()]
+    .map((e) => {
+      const fires = e.runs.filter((r) => wouldFire(r, current)).length;
+      return { ...e, fires, total: e.runs.length };
+    })
+    .filter((e) => e.fires > 0 && e.fires < e.total)
+    .map((e) => {
+      const gateCrossed = e.runs.some((r) => r.hot < current) && e.runs.some((r) => r.hot >= current);
+      const classes = new Set(e.runs.map((r) => r.cls ?? 'none'));
+      const confCrossed =
+        e.runs.some((r) => r.confidence < minConfidence) && e.runs.some((r) => r.confidence >= minConfidence);
+      const causes = [];
+      if (gateCrossed) causes.push(`gate crossed ${current.toFixed(2)}`);
+      if (classes.size > 1) causes.push(`class varied (${[...classes].join(' / ')})`);
+      if (confCrossed) causes.push(`confidence crossed ${minConfidence}`);
+      return { ...e, causes };
+    })
+    .sort((a, b) => a.fires / a.total - b.fires / b.total);
 
   console.log(`\n  Across ${RUNS} runs`);
   console.log('  ---------------------------------------------------------------------');
   console.log(`  units judged             ${byUnit.size}`);
-  console.log(`  gate value moved         ${moved.length}`);
-  console.log(`  moved ACROSS ${current.toFixed(2)}        ${flipped.length}   <- these are the unstable findings`);
+  console.log(`  gate value moved at all  ${moved.length}`);
+  console.log(`  findings that flipped    ${unstable.length}   <- fired in some runs, not others`);
 
-  for (const e of flipped) {
-    const fires = e.hots.filter((h) => h >= current).length;
+  for (const e of unstable) {
     console.log(
-      `\n    ${e.sample.id}${e.short ? ' (short line)' : ''}\n` +
+      `\n    ${e.sample.id}${e.short ? ' (short line)' : ''}  —  fires in ${e.fires}/${e.total} runs\n` +
         `      "${trim(e.text)}"\n` +
-        `      gate ${e.lo.toFixed(2)} – ${e.hi.toFixed(2)}, fires in ${fires}/${e.hots.length} runs` +
-        `, classed ${[...e.classes].join('/') || 'none'}`,
+        `      gate ${Math.min(...e.hots).toFixed(2)} – ${Math.max(...e.hots).toFixed(2)}` +
+        `   cause: ${e.causes.join('; ') || 'unclear'}`,
     );
   }
 
-  if (!moved.length) {
-    console.log('\n  Every gate value was identical in every run. On this corpus, at this');
-    console.log('  moment, the judge is reproducible - which is a weaker claim than');
-    console.log(`  deterministic, and ${RUNS} runs is how weak.`);
+  if (!unstable.length) {
+    console.log(`\n  No finding changed between runs. ${moved.length} gate values moved without`);
+    console.log('  crossing anything that matters, which is the useful shape: noisy');
+    console.log('  underneath, steady at the decision. It is still only an observation');
+    console.log(`  over ${RUNS} runs, not a guarantee.`);
   }
 }
 
