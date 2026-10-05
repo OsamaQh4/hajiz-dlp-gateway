@@ -261,15 +261,28 @@ under identical conditions: a generative judge that writes spans, and a
 | precision / recall (span level) | 91.7% / **100%** | 90.9% / 90.9% |
 | precision / recall (strict class) | 90.3% / 84.8% | 88.9% / 72.7% |
 | recall variance across 3 runs | 81.8% – 90.9% | **flat** |
+| precision variance across 3 runs | not recorded | flat *at the time* - see below |
 | false positives on 15 clean prompts | 0 | 0 |
 | latency p50 / p95 | 952 ms / 2965 ms | **407 ms / 510 ms** |
 | span width (mean) | 32 chars | 96 chars |
 
 Neither dominates. Gemma finds more; Jev is 2.3x faster at the median, 5.8x at
-p95, and returns **the same findings every run** - `spans returned 14 – 14`
+p95, and returned **the same findings every run** - `spans returned 14 – 14`
 against Gemma's 12–13 and a recall that swung nine points between runs. For an
 auditable control, "these specific things, every time" is a different claim from
 "82–91% depending on the run".
+
+**That determinism claim has since been qualified, and the qualification is
+worth more than the claim.** Jev's *recall* is flat: 72.7%, then 75.0% after the
+corpus grew, the same rate in every run of every version measured. Its
+*precision* is not. One corpus sentence - "Write a one-page mitigation plan for
+the..." - sits close enough to the gate to flip, and has been observed flagged
+in 1 run of 3 on a request byte-identical to runs where it was not flagged.
+Tier B precision therefore ranges 81.8–90.0% rather than sitting flat at 88.9%.
+
+Three agreeing runs were never evidence of determinism, and reading them that
+way has already cost one wrong diagnosis: a single run at 83.3% was attributed
+to a prompt change that provably could not have caused it. Quote the range.
 
 The structural difference shows in span width. A generative judge returns
 phrases, which can be substituted. A decision model picks whole sentences,
@@ -281,6 +294,27 @@ Jev cannot hallucinate a span: its options are sentences we split and spans
 Tier A already located, so a fabricated finding is not filtered out afterwards,
 it is inexpressible. Its confidence is calibrated rather than self-reported,
 which is what the policy thresholds branch on.
+
+**Current numbers for the shipped configuration** (Jev, 35 samples, 3 runs,
+30 calls per run, 0 degraded). These supersede the Jev column above, which was
+measured before the corpus carried an unlabelled credential:
+
+| | |
+|---|---|
+| precision / recall (span level) | 91.7% / 91.7% over 12 expectations |
+| precision / recall (strict class) | 90.0% / 75.0% |
+| false positives on 16 clean prompts | 0, same rate every run |
+| stability | 31 of 32 expectations found in **every** run; 1 false alarm in 1 run of 3 |
+| latency | p50 388 ms · p95 511 ms |
+| Tier A | 100% / 100% over 20 expectations, 0 false alarms, p50 0.13 ms |
+
+Combined across both tiers: precision 96.7%, recall 90.6%, F1 93.5%.
+
+Against the same harness before the short-line fix: span 90.9% / 90.9%, strict
+88.9% / 72.7%, 11 expectations. The extra expectation is a credential alone on
+a line with no label in front of it, which the semantic layer now catches and
+classes correctly - and which was invisible to both tiers until an adversarial
+test found it. It cost 13% more judge questions and no measurable latency.
 
 **Jev is the default.** The detail below is the generative judge (`google/gemma-4-26b-a4b-it`, 3 runs, 99 calls, 0 degraded), kept for comparison; set `DLP_JUDGE_PROVIDER=anthropic` or `local` to use one.
 
