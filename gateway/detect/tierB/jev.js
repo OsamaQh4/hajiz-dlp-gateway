@@ -247,26 +247,32 @@ export async function judgeWithJev(text, tierA = [], { policy, signal } = {}) {
   // but leaks slip through; lower it and the reverse.
   //
   // It sat at 0.6 unmeasured until tools/gate-sweep.mjs could read the gate
-  // values it compares against. Swept over 35 samples and 5 runs, 0.55 turns
-  // out to dominate 0.6 outright rather than trading against it:
+  // values it compares against. Two sweeps, 35 samples, 5 runs each:
   //
-  //          recall   precision   false alarms   on benign
-  //   0.50   100.0%      82.2%             13           0
-  //   0.55    98.3%      88.1%              8           0   <- best F1, 92.9%
-  //   0.60    91.7%      87.3%              8           0   <- was here
-  //   0.80    83.3%     100.0%              0           0
+  //          recall   precision   false alarms   on benign   reproducible
+  //   0.50   100.0%      82.2%             13           0   identical twice
+  //   0.55   98.3-100%  84.5-88.1%        8-11          0   MOVED
+  //   0.60    91.7%      87.3%              8           0   identical twice
+  //   0.80    83.3%     100.0%              0           0   identical twice
   //
-  // Same false-alarm count as 0.6, six points more recall, and it recovers
-  // the one expectation the benchmark had never found in any run. Nothing on
-  // this corpus flags a clean prompt at any threshold, so the recall is not
-  // being bought from the people whose prompts are fine.
+  // 0.55 has the best F1 in both sweeps and is the one threshold whose
+  // numbers moved between them: the jitter band sits exactly on it. For a
+  // control sold as auditable, standing inside the noise is worse than a
+  // slightly lower F1, so the default is 0.50 - the recall-maximal point that
+  // reproduced identically across both sweeps.
   //
-  // 0.80 is the other defensible posture - zero false alarms, 100% precision,
-  // nine points less recall. For a control whose semantic findings go to a
-  // human rather than being substituted silently, a false alarm costs a review
-  // and a miss costs the thing the product exists to prevent, so recall wins.
-  // Set DLP_SENTENCE_HOT_ABOVE or thresholds.sentence_hot_above to disagree.
-  const hotFloor = Number(process.env.DLP_SENTENCE_HOT_ABOVE ?? policy?.thresholds?.sentence_hot_above ?? 0.55);
+  // Nothing in the corpus flags a clean prompt at any threshold from 0.05 up.
+  // Every false alarm lands on a prompt that is already sensitive and already
+  // going to a reviewer, so the recall is not bought from the people whose
+  // prompts are fine.
+  //
+  // 0.80 is the other reproducible posture: zero false alarms, 100%
+  // precision, 17 points less recall. For a control whose semantic findings
+  // go to a human rather than being substituted silently, a false alarm costs
+  // a review and a miss costs the thing the product exists to prevent, so
+  // recall wins. Set DLP_SENTENCE_HOT_ABOVE or thresholds.sentence_hot_above
+  // to disagree, and re-measure with `npm run gate-sweep` before you do.
+  const hotFloor = Number(process.env.DLP_SENTENCE_HOT_ABOVE ?? policy?.thresholds?.sentence_hot_above ?? 0.5);
 
   sents.forEach((s, i) => {
     // The gate decides whether the sentence is sensitive at all; the Choice

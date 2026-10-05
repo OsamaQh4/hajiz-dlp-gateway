@@ -65,12 +65,18 @@ tier_b:
 
 thresholds:
   # The gate: how sure the judge must be that a unit is sensitive at all,
-  # before its class is even considered. Swept over 35 samples and 5 runs -
-  # 0.55 gives 98.3% recall at the same false-alarm count as 0.60, and nothing
-  # in the corpus flags a clean prompt at any setting. Raise toward 0.80 for
-  # zero false alarms and nine points less recall. `npm run gate-sweep`
-  # re-measures this on your own corpus.
-  sentence_hot_above: 0.55
+  # before its class is even considered.
+  #
+  # Swept twice, 35 samples and 5 runs each. 0.50 gives 100% recall and
+  # reproduced identically across both sweeps; 0.55 has the better F1 but is
+  # the one value whose numbers moved, because the judge's jitter band sits on
+  # it; 0.80 gives 100% precision and zero false alarms for 17 points of
+  # recall. No setting from 0.05 up flags a clean prompt in the corpus.
+  #
+  # Raise it to 0.80 if you would rather the gateway never cried wolf than
+  # never missed. `npm run gate-sweep` re-measures all of this on your own
+  # traffic, which is the only corpus whose shape matters to you.
+  sentence_hot_above: 0.5
 
   # Judge findings below this are dropped as noise.
   #
