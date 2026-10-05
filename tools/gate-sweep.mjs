@@ -232,6 +232,37 @@ if (RUNS > 1) {
   }
 }
 
+// Every raw answer, kept. A sweep costs real calls, and the questions worth
+// asking next are almost always "what if we scored it differently" rather than
+// "what does the model say" - which the recorded answers can settle for free.
+const out = arg('--out', 'data/gate-sweep.json');
+if (out !== 'none') {
+  fs.mkdirSync(new URL('../data/', import.meta.url), { recursive: true });
+  fs.writeFileSync(
+    out,
+    JSON.stringify(
+      {
+        model: config.jev.model,
+        runs: RUNS,
+        recordedAt: new Date().toISOString(),
+        minConfidence,
+        currentThreshold: current,
+        observations: observations.map((o) => ({
+          run: o.run,
+          id: o.sample.id,
+          kind: o.sample.kind,
+          expected: o.expected,
+          allExpected: o.allExpected,
+          units: o.units,
+        })),
+      },
+      null,
+      2,
+    ),
+  );
+  console.log(`\n  Raw answers written to ${out} - re-score offline without spending calls.`);
+}
+
 console.log(`\n  Current threshold ${current.toFixed(2)}: precision ${pct(scoreAt(current).precision ?? 0)}, recall ${pct(scoreAt(current).recall ?? 0)}`);
 console.log(`  Best F1 at ${best.t.toFixed(2)}: precision ${pct(best.precision ?? 0)}, recall ${pct(best.recall ?? 0)}`);
 console.log('\n  A threshold picked off 35 hand-built samples is a starting point, not a');

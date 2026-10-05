@@ -64,7 +64,21 @@ tier_b:
   skip_on_hard_block: true
 
 thresholds:
+  # The gate: how sure the judge must be that a unit is sensitive at all,
+  # before its class is even considered. Swept over 35 samples and 5 runs -
+  # 0.55 gives 98.3% recall at the same false-alarm count as 0.60, and nothing
+  # in the corpus flags a clean prompt at any setting. Raise toward 0.80 for
+  # zero false alarms and nine points less recall. `npm run gate-sweep`
+  # re-measures this on your own corpus.
+  sentence_hot_above: 0.55
+
   # Judge findings below this are dropped as noise.
+  #
+  # Measured caution: this floor, not the gate, is what makes borderline
+  # findings unstable. Two of the three findings that flipped across five runs
+  # had gate values sitting steadily well above 0.60 (0.79-0.82 and
+  # 0.68-0.70) and flipped because the *class* confidence crossed 0.5. The
+  # judge was sure the sentence was sensitive and unsure which kind it was.
   judge_min_confidence: 0.5
   # Judge findings below this are sent to a human rather than acted on silently.
   escalate_below: 0.75

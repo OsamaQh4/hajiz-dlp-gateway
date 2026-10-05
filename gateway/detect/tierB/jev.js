@@ -244,9 +244,29 @@ export async function judgeWithJev(text, tierA = [], { policy, signal } = {}) {
 
   // How certain the gate must be before a sentence is treated as sensitive.
   // This is the precision/recall dial: raise it and clean prompts stay clean
-  // but leaks slip through; lower it and the reverse. Overridable so the trade
-  // can be swept rather than guessed.
-  const hotFloor = Number(process.env.DLP_SENTENCE_HOT_ABOVE ?? policy?.thresholds?.sentence_hot_above ?? 0.6);
+  // but leaks slip through; lower it and the reverse.
+  //
+  // It sat at 0.6 unmeasured until tools/gate-sweep.mjs could read the gate
+  // values it compares against. Swept over 35 samples and 5 runs, 0.55 turns
+  // out to dominate 0.6 outright rather than trading against it:
+  //
+  //          recall   precision   false alarms   on benign
+  //   0.50   100.0%      82.2%             13           0
+  //   0.55    98.3%      88.1%              8           0   <- best F1, 92.9%
+  //   0.60    91.7%      87.3%              8           0   <- was here
+  //   0.80    83.3%     100.0%              0           0
+  //
+  // Same false-alarm count as 0.6, six points more recall, and it recovers
+  // the one expectation the benchmark had never found in any run. Nothing on
+  // this corpus flags a clean prompt at any threshold, so the recall is not
+  // being bought from the people whose prompts are fine.
+  //
+  // 0.80 is the other defensible posture - zero false alarms, 100% precision,
+  // nine points less recall. For a control whose semantic findings go to a
+  // human rather than being substituted silently, a false alarm costs a review
+  // and a miss costs the thing the product exists to prevent, so recall wins.
+  // Set DLP_SENTENCE_HOT_ABOVE or thresholds.sentence_hot_above to disagree.
+  const hotFloor = Number(process.env.DLP_SENTENCE_HOT_ABOVE ?? policy?.thresholds?.sentence_hot_above ?? 0.55);
 
   sents.forEach((s, i) => {
     // The gate decides whether the sentence is sensitive at all; the Choice
