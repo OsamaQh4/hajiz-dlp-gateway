@@ -16,6 +16,7 @@ import { renderAudit } from './pages/audit.js';
 import { renderAppliance } from './pages/appliance.js';
 import { renderApi } from './pages/api.js';
 import { renderDeployment } from './pages/deployment.js';
+import { renderIntegrations } from './pages/integrations.js';
 import { renderHelp } from './pages/help.js';
 import { renderPlaceholder } from './pages/placeholder.js';
 import { renderSignIn } from './pages/signin.js';
@@ -28,7 +29,7 @@ const ROUTES = [
   { path: '/policy', id: 'policy', label: 'Policy', group: 'ops', icon: 'sliders', render: renderPolicy },
   { path: '/audit', id: 'audit', label: 'Audit', group: 'ops', icon: 'ledger', render: renderAudit },
   { path: '/deployment', id: 'deployment', label: 'Deployment', group: 'setup', icon: 'route', render: renderDeployment },
-  { path: '/integrations', id: 'integrations', label: 'Integrations', group: 'setup', icon: 'plug' },
+  { path: '/integrations', id: 'integrations', label: 'Integrations', group: 'setup', icon: 'plug', render: renderIntegrations },
   { path: '/appliance', id: 'appliance', label: 'Appliance', group: 'setup', icon: 'server', render: renderAppliance },
   { path: '/api', id: 'api', label: 'API', group: 'setup', icon: 'code', render: renderApi },
   { path: '/help', id: 'help', label: 'Help', group: 'setup', icon: 'help', render: renderHelp },

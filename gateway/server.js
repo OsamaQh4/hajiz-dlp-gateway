@@ -16,6 +16,7 @@ import * as session from './auth/session.js';
 import { applianceState } from './auth/appliance.js';
 import { createProxy, shouldInspect, INSPECT_HOSTS, NEVER_INTERCEPT } from './intercept/proxy.js';
 import { loadCA, caStatus, caCertificatePem } from './intercept/ca.js';
+import * as identity from './identity/identity.js';
 
 const DASHBOARD = path.join(ROOT, 'dashboard');
 const MIME = {
@@ -115,6 +116,16 @@ const route = async (req, res) => {
         return sendJson(res, result.ok ? 200 : 400, result);
       }
 
+      if (url.pathname === '/api/identity') {
+        const body = JSON.parse((await readBody(req)) || '{}');
+        return sendJson(res, 200, identity.saveSettings(body));
+      }
+
+      if (url.pathname === '/api/identity/preview') {
+        const body = JSON.parse((await readBody(req)) || '{}');
+        return sendJson(res, 200, await identity.preview(body.address));
+      }
+
       if (url.pathname === '/api/appliance/unlock') {
         const result = accounts.clearLockout();
         return sendJson(res, result.ok ? 200 : 400, result);
@@ -165,6 +176,14 @@ const route = async (req, res) => {
         });
       }
       if (url.pathname === '/api/appliance') return sendJson(res, 200, applianceState());
+
+      if (url.pathname === '/api/integrations') {
+        return sendJson(res, 200, {
+          identity: identity.identityStatus(),
+          siem: { built: false, note: 'Forwarding the audit stream to a SIEM is not implemented yet.' },
+          notifications: { built: false, note: 'Reviewer notifications are not implemented yet; the review queue has to be watched.' },
+        });
+      }
 
       if (url.pathname === '/api/deployment') {
         return sendJson(res, 200, {

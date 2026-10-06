@@ -7,6 +7,7 @@ import { decide, getPolicy, watchlistFor } from '../policy/policy.js';
 import { vault } from '../vault/vault.js';
 import { bus, metrics } from '../lib/events.js';
 import { append, summarize } from '../audit/audit.js';
+import { resolve as resolveIdentity } from '../identity/identity.js';
 import { SSEParser, serialize } from './sse.js';
 
 /** Separator used to judge every segment of a request in a single pass. */
@@ -67,6 +68,17 @@ export async function handleProxy({ adapter, req, res, rawBody, via = 'baseurl' 
   const sessionId = header(req, 'x-dlp-session') || header(req, 'x-dlp-user') || 'anon';
   const group = header(req, 'x-dlp-group') || null;
 
+  /*
+   * Where the prompt came from on the network, and who that was.
+   *
+   * Resolved once per request and attached to the record. It never reaches
+   * decide(): an identity source going down would otherwise change what policy
+   * does, and a control whose behaviour depends on a directory being up is one
+   * that fails in a way nobody predicted. Identity decorates the record.
+   */
+  const sourceAddress = req.socket?.remoteAddress ?? null;
+  const identity = await resolveIdentity(sourceAddress).catch(() => null);
+
   let body;
   try {
     body = JSON.parse(rawBody || '{}');
@@ -110,7 +122,7 @@ export async function handleProxy({ adapter, req, res, rawBody, via = 'baseurl' 
     }));
 
     await finish({
-      requestId, sessionId, group, adapter, action: decision.action, decision, timings, judge: judgeInfo, via,
+      requestId, sessionId, group, adapter, action: decision.action, decision, timings, judge: judgeInfo, via, identity,
       started, joined, sanitized: null, mappings: wouldTokenize,
       extra: { skipReason: result.tierBSkipReason, observed: true, wouldHave: decision.action },
     });
@@ -132,7 +144,7 @@ export async function handleProxy({ adapter, req, res, rawBody, via = 'baseurl' 
   // ---- blocked -------------------------------------------------------------
   if (decision.action === 'block') {
     await finish({
-      requestId, sessionId, group, adapter, action: 'block', decision, timings, judge: judgeInfo, via,
+      requestId, sessionId, group, adapter, action: 'block', decision, timings, judge: judgeInfo, via, identity,
       started, joined, sanitized: null, mappings: [],
       extra: { skipReason: result.tierBSkipReason },
     });
@@ -159,7 +171,7 @@ export async function handleProxy({ adapter, req, res, rawBody, via = 'baseurl' 
       await finish({
         requestId, sessionId, group, adapter, action: 'block',
         decision: { ...decision, reasons: [...decision.reasons, `reviewer ${verdict.reviewer} declined`] },
-        timings, judge: judgeInfo, via, started, joined, sanitized: null, mappings: [],
+        timings, judge: judgeInfo, via, identity, started, joined, sanitized: null, mappings: [],
         escalated, reviewMs,
       });
       const { status, body: errBody } = adapter.errorResponse(
@@ -209,7 +221,7 @@ export async function handleProxy({ adapter, req, res, rawBody, via = 'baseurl' 
   }
 
   await finish({
-    requestId, sessionId, group, adapter, action, decision, timings, judge: judgeInfo, via,
+    requestId, sessionId, group, adapter, action, decision, timings, judge: judgeInfo, via, identity,
     started, joined, sanitized, mappings, escalated, reviewMs,
     extra: {
       skipReason: result.tierBSkipReason,
@@ -372,7 +384,7 @@ function requestApproval({ requestId, sessionId, group, decision, joined, policy
 
 async function finish({
   requestId, sessionId, group, adapter, action, decision, timings, judge, started, joined, sanitized, mappings,
-  escalated = false, reviewMs = 0, via = 'baseurl', extra = {},
+  escalated = false, reviewMs = 0, via = 'baseurl', identity = null, extra = {},
 }) {
   // Human review time is excluded: a reviewer who takes 40 seconds to click
   // approve must not show up as 40 seconds of gateway latency.
@@ -380,7 +392,7 @@ async function finish({
   metrics.record({ action, escalated, tierAMs: timings.tierAMs, tierBMs: timings.tierBMs, totalMs, via });
 
   const record = summarize({
-    requestId, sessionId, group, route: adapter.route, action, decision, timings, judge, via,
+    requestId, sessionId, group, route: adapter.route, action, decision, timings, judge, via, identity,
   });
   const shared = { ...record, totalMs, escalated, reviewMs: escalated ? round2(reviewMs) : null, ...extra };
   await append(shared);
