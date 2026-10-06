@@ -10,11 +10,14 @@
 
 export function renderReview(mount, { store }) {
   mount.innerHTML = `
-    <p class="eyebrow">Review queue · prompts held for a person</p>
-    <h1 class="display" id="rv-headline">Nothing is waiting.</h1>
-    <p class="lede" id="rv-lede">When policy sends a prompt to a human, it appears here.</p>
+    <div class="toolbar">
+      <span class="toolbar__title" id="rv-headline">Held for review</span>
+      <span class="toolbar__sub" id="rv-lede">Nothing is waiting</span>
+      <span class="toolbar__spacer"></span>
+      <span class="toolbar__sub">Approve sends the prompt as written · refuse stops it and notifies the sender</span>
+    </div>
     <div id="rv-ratchet"></div>
-    <div id="rv-body" style="margin-top:22px"></div>`;
+    <div id="rv-body" style="margin-top:12px"></div>`;
 
   let data = { items: [], limit: 3, onTimeout: 'judge' };
   let selected = null;
@@ -73,13 +76,10 @@ export function renderReview(mount, { store }) {
 
   function paint() {
     const items = data.items ?? [];
-    mount.querySelector('#rv-headline').textContent = items.length
-      ? `${items.length} prompt${items.length === 1 ? ' is' : 's are'} waiting for a person.`
-      : 'Nothing is waiting.';
+    mount.querySelector('#rv-headline').textContent = items.length ? `${items.length} held` : 'Held for review';
     mount.querySelector('#rv-lede').textContent = items.length
-      ? `Approve sends the prompt exactly as the employee wrote it. Refuse stops it and the employee ` +
-        `sees a notice. If nobody answers in time, the appliance decides on its own.`
-      : 'When policy sends a prompt to a human, it appears here. Prompts time out whether or not anyone is looking.';
+      ? 'soonest timeout first'
+      : 'nothing is waiting';
 
     paintRatchet(mount.querySelector('#rv-ratchet'), items, data);
 

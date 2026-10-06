@@ -42,27 +42,50 @@ const FOUND_BY = {
 };
 
 export function renderPolicy(mount, { store }) {
+  // Classes on the left where the work is; the dials that shape them in a rail
+  // on the right, the way an application puts parameters beside the document
+  // rather than above it.
   mount.innerHTML = `
-    <p class="eyebrow">Policy · <span class="mono" id="po-path"></span></p>
-    <h1 class="display">What each kind of data is allowed to do.</h1>
-    <p class="lede">One action per class. When a prompt carries several, the strictest one wins.
-    Changes are written to the file on this appliance and apply to the next prompt.</p>
+    <div class="toolbar">
+      <span class="toolbar__title">Policy</span>
+      <span class="toolbar__sub mono" id="po-path"></span>
+      <span class="toolbar__spacer"></span>
+      <span class="toolbar__sub">Strictest action wins · applies to the next prompt</span>
+    </div>
     <div id="po-status"></div>
     <div id="po-flash"></div>
 
-    <h2 class="section">Data classes</h2>
-    <div class="card" id="po-classes"></div>
+    <div class="split">
+      <div>
+        <div class="panel">
+          <div class="panel__head"><span class="panel__title">Data classes</span>
+            <span class="panel__spacer"></span>
+            <span class="panel__title" id="po-class-count" style="text-transform:none;letter-spacing:0"></span>
+          </div>
+          <div class="panel__body panel__body--flush" id="po-classes"></div>
+        </div>
 
-    <div class="grid grid--2" style="margin-top:14px">
-      <div class="card"><h2 class="section" style="margin:0 0 10px">Detection gate</h2><div id="po-gate"></div></div>
-      <div class="card"><h2 class="section" style="margin:0 0 10px">Escalation</h2><div id="po-escalation"></div></div>
-    </div>
+        <div class="panel">
+          <div class="panel__head"><span class="panel__title">Change history</span></div>
+          <div class="panel__body panel__body--flush" id="po-versions"></div>
+        </div>
+      </div>
 
-    <h2 class="section">Organization watchlist</h2>
-    <div class="card" id="po-watchlist"></div>
-
-    <h2 class="section">Change history</h2>
-    <div class="card" style="padding:18px 8px" id="po-versions"></div>`;
+      <div>
+        <div class="panel">
+          <div class="panel__head"><span class="panel__title">Detection gate</span></div>
+          <div class="panel__body" id="po-gate"></div>
+        </div>
+        <div class="panel">
+          <div class="panel__head"><span class="panel__title">Escalation</span></div>
+          <div class="panel__body panel__body--flush" id="po-escalation"></div>
+        </div>
+        <div class="panel">
+          <div class="panel__head"><span class="panel__title">Watchlist</span></div>
+          <div class="panel__body" id="po-watchlist"></div>
+        </div>
+      </div>
+    </div>`;
 
   let policy = null;
   let status = null;
@@ -188,9 +211,8 @@ function paintClasses(el, policy, send) {
     </tr>`;
   }).join('');
 
-  el.innerHTML = `
-    <div class="grid" style="grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:16px">${legend}</div>
-    <table class="data"><tbody>${rows}</tbody></table>`;
+  el.innerHTML = `<div style="padding:10px 12px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px">${legend}</div>
+    <table class="data data--dense"><tbody>${rows}</tbody></table>`;
 
   for (const btn of el.querySelectorAll('[data-cls]')) {
     btn.addEventListener('click', () => {
@@ -226,9 +248,9 @@ function paintEscalation(el, policy, send) {
   const limit = esc_.auto_decisions_before_block ?? 3;
 
   el.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0">
-      <div><strong>Wait for a person</strong>
-        <div class="stat__note">How long a held prompt waits before the appliance decides on its own.</div></div>
+    <div class="row">
+      <div class="row__label"><strong>Wait for a person</strong>
+        <div class="row__help">How long a held prompt waits before the appliance decides on its own.</div></div>
       <div style="display:flex;align-items:center;gap:6px">
         <input type="number" min="5" max="600" step="5" value="${waitS}" id="po-wait"
                style="width:76px;height:30px;text-align:right;font-family:var(--font-mono);
@@ -237,10 +259,9 @@ function paintEscalation(el, policy, send) {
         <span class="muted">s</span>
       </div>
     </div>
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;
-                border-top:1px solid var(--border)">
-      <div><strong>Machine decisions in a row</strong>
-        <div class="stat__note">After this many consecutive timeouts decided without a person, every later
+    <div class="row">
+      <div class="row__label"><strong>Machine decisions in a row</strong>
+        <div class="row__help">After this many consecutive timeouts decided without a person, every later
         timeout is refused until someone answers one.</div></div>
       <input type="number" min="1" max="20" value="${limit}" id="po-ratchet"
              style="width:62px;height:30px;text-align:right;font-family:var(--font-mono);
@@ -318,7 +339,7 @@ function paintVersions(el, versions, rollback) {
   el.innerHTML = `
     <p class="stat__note" style="padding:0 10px 10px">Each entry is the whole file as it stood before that
     change. A rejected edit is kept too — that an edit was tried and refused is worth knowing.</p>
-    <table class="data"><thead><tr><th>Version</th><th>When</th><th>Outcome</th><th>Change</th><th></th></tr></thead>
+    <table class="data data--dense"><thead><tr><th>Version</th><th>When</th><th>Outcome</th><th>Change</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 
   for (const btn of el.querySelectorAll('[data-rollback]')) {
