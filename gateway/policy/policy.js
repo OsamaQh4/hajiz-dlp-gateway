@@ -22,19 +22,63 @@ const FALLBACK = {
 let current = FALLBACK;
 let loadedAt = 0;
 let loadError = null;
+let everLoaded = false;
+
+/**
+ * Check a parsed policy before it is allowed to replace a running one.
+ *
+ * An action name that is not one of the five is the common typo and the
+ * dangerous one: `redcat` for `redact` silently falls through to the default
+ * action, which is gentler than what the administrator meant to write. Caught
+ * here by name rather than discovered later by a leak.
+ */
+export function validatePolicy(parsed) {
+  const problems = [];
+  if (!parsed || typeof parsed !== 'object') return ['policy is not a mapping'];
+
+  for (const [cls, action] of Object.entries(parsed.actions ?? {})) {
+    if (!VALID_ACTIONS.includes(action)) {
+      problems.push(`actions.${cls}: unknown action "${action}" (expected ${VALID_ACTIONS.join(', ')})`);
+    }
+  }
+
+  for (const [group, body] of Object.entries(parsed.groups ?? {})) {
+    for (const [cls, action] of Object.entries(body?.actions ?? {})) {
+      if (!VALID_ACTIONS.includes(action)) {
+        problems.push(`groups.${group}.actions.${cls}: unknown action "${action}"`);
+      }
+    }
+  }
+
+  if (parsed.default_action && !VALID_ACTIONS.includes(parsed.default_action)) {
+    problems.push(`default_action: unknown action "${parsed.default_action}"`);
+  }
+
+  const gate = parsed.thresholds?.sentence_hot_above;
+  if (gate != null && (typeof gate !== 'number' || gate < 0 || gate > 1)) {
+    problems.push('thresholds.sentence_hot_above must be a number between 0 and 1');
+  }
+
+  return problems;
+}
 
 export function loadPolicy(file = config.policyPath) {
   try {
     const parsed = yaml.load(fs.readFileSync(file, 'utf8'));
-    if (!parsed || typeof parsed !== 'object') throw new Error('policy is not a mapping');
+    const problems = validatePolicy(parsed);
+    if (problems.length) throw new Error(problems.join('; '));
     current = { ...FALLBACK, ...parsed };
     loadedAt = Date.now();
     loadError = null;
+    everLoaded = true;
   } catch (err) {
-    // Never leave the gateway without a policy - fall back to the strict
-    // built-in one rather than failing open.
     loadError = err.message;
-    current = FALLBACK;
+    // A broken file must not cost an organization its policy. On the first
+    // load there is nothing better than the strict built-in fallback, but on a
+    // reload the last good policy keeps running and the error is reported
+    // instead. Replacing a full rule set with a four-line fallback because of
+    // one mistyped word is a far larger failure than refusing the edit.
+    if (!everLoaded) current = FALLBACK;
   }
   return current;
 }
@@ -45,7 +89,17 @@ export function getPolicy() {
 }
 
 export function policyStatus() {
-  return { name: current.name, version: current.version, loadedAt, error: loadError };
+  return {
+    name: current.name,
+    version: current.version,
+    loadedAt,
+    error: loadError,
+    // True when a file on disk was rejected and this is the previous policy
+    // still doing the work. The console has to say so: the gateway is running
+    // something other than what the file says.
+    stale: Boolean(loadError && everLoaded),
+    path: config.policyPath,
+  };
 }
 
 /** Hot reload, so a demo (or a real incident) can change policy without a restart. */

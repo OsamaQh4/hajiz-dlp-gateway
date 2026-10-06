@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decide, loadPolicy, getPolicy, watchlistFor } from '../gateway/policy/policy.js';
+import { decide, loadPolicy, getPolicy, watchlistFor, validatePolicy, policyStatus } from '../gateway/policy/policy.js';
 
 loadPolicy();
 
@@ -112,4 +112,52 @@ test('escalated findings are still pseudonymized once approved', () => {
   const d = decide([finding({ cls: 'strategic', tier: 'B', confidence: 0.9 })]);
   assert.equal(d.action, 'escalate');
   assert.equal(d.toTokenize.length, 1, 'approval must not send the raw value');
+});
+
+test('an unknown action name is rejected rather than quietly ignored', () => {
+  // `redcat` for `redact` falls through to default_action, which is gentler
+  // than what the administrator meant to write. Caught by name here rather
+  // than discovered later by a leak.
+  const problems = validatePolicy({ actions: { credentials: 'redcat', email: 'pseudonymize' } });
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /credentials.*redcat/);
+
+  assert.deepEqual(validatePolicy({ actions: { credentials: 'redact' } }), []);
+});
+
+test('a bad action inside a group override is caught too', () => {
+  const problems = validatePolicy({ groups: { legal: { actions: { legal: 'blokc' } } } });
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /groups\.legal/);
+});
+
+test('the gate must be a probability', () => {
+  assert.equal(validatePolicy({ thresholds: { sentence_hot_above: 1.4 } }).length, 1);
+  assert.equal(validatePolicy({ thresholds: { sentence_hot_above: 0.5 } }).length, 0);
+});
+
+test('a broken file on reload keeps the last good policy running', async () => {
+  // The failure this prevents: one mistyped word replacing an organization's
+  // whole rule set with a four-line built-in fallback, silently, at the moment
+  // someone edits policy under pressure.
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+
+  const file = path.join(os.tmpdir(), `hajiz-policy-${process.pid}.yaml`);
+  fs.writeFileSync(file, 'version: 9\nname: good\nactions:\n  email: block\n');
+  loadPolicy(file);
+  assert.equal(getPolicy().actions.email, 'block');
+  assert.equal(getPolicy().name, 'good');
+
+  fs.writeFileSync(file, 'version: 10\nname: broken\nactions:\n  email: redcat\n');
+  loadPolicy(file);
+
+  assert.equal(getPolicy().name, 'good', 'the running policy must survive the bad edit');
+  assert.equal(getPolicy().actions.email, 'block');
+  assert.match(policyStatus().error, /redcat/);
+  assert.equal(policyStatus().stale, true, 'and the console must be told it is running stale');
+
+  fs.unlinkSync(file);
+  loadPolicy();
 });
