@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { config, isMock, isObserve } from '../config.js';
 import { detect, SEP } from '../detect/index.js';
 import { verifySanitized } from '../detect/tierB/verify.js';
-import { adjudicateUnreviewed, recordHumanDecision } from '../detect/tierB/adjudicate.js';
+import { adjudicateUnreviewed, recordHumanDecision, consecutiveAutoDecisions } from '../detect/tierB/adjudicate.js';
 import { decide, getPolicy, watchlistFor } from '../policy/policy.js';
 import { vault } from '../vault/vault.js';
 import { bus, metrics } from '../lib/events.js';
@@ -12,6 +12,33 @@ import { SSEParser, serialize } from './sse.js';
 /** Separator used to judge every segment of a request in a single pass. */
 
 export const pendingApprovals = new Map();
+
+/**
+ * Everything the review queue needs, in one call: the prompts being held and
+ * how close the appliance is to refusing on its own.
+ *
+ * The ratchet is per the policy's counter_scope, so it is read for each held
+ * prompt rather than once for the queue - two sessions can be at different
+ * points in their own runs.
+ */
+export function pendingReviews(policy) {
+  const limit = policy?.escalation?.auto_decisions_before_block ?? 3;
+  const items = [...pendingApprovals.entries()].map(([requestId, p]) => ({
+    requestId,
+    sessionId: p.sessionId,
+    group: p.group ?? null,
+    heldAt: p.heldAt ?? null,
+    expiresAt: p.expiresAt ?? null,
+    waitMs: p.waitMs ?? null,
+    reasons: p.reasons ?? [],
+    findings: p.findings ?? [],
+    prompt: p.prompt ?? null,
+    consecutive: consecutiveAutoDecisions({ sessionId: p.sessionId, group: p.group, policy }),
+  }));
+
+  items.sort((a, b) => (a.expiresAt ?? Infinity) - (b.expiresAt ?? Infinity));
+  return { items, limit, onTimeout: policy?.escalation?.on_timeout ?? 'judge' };
+}
 
 export function resolveEscalation(id, approved, reviewer = 'dashboard') {
   const pending = pendingApprovals.get(id);
@@ -280,13 +307,46 @@ function requestApproval({ requestId, sessionId, group, decision, joined, policy
       return resolve({ approved: call.approved, reviewer: call.by, reason: call.reason, auto: call });
     }, waitMs);
 
-    pendingApprovals.set(requestId, { resolve, timer, sessionId, group });
+    // The review queue has to render this without the prompt in hand, so the
+    // entry carries the whole case rather than just the means to resolve it.
+    // Previously it held only the resolver, and a reviewer could be told a
+    // prompt was waiting but not what was in it.
+    const expiresAt = Date.now() + waitMs;
+    const findings = decision.perFinding
+      .filter((f) => f.action === 'escalate')
+      .map((f) => ({
+        cls: f.cls,
+        detector: f.detector,
+        tier: f.tier,
+        confidence: f.confidence,
+        rationale: f.rationale,
+        start: f.start,
+        end: f.end,
+        preview: config.dashboardShowPlaintext ? joined.slice(f.start, f.end) : null,
+      }));
+
+    pendingApprovals.set(requestId, {
+      resolve,
+      timer,
+      sessionId,
+      group,
+      heldAt: Date.now(),
+      expiresAt,
+      waitMs,
+      reasons: decision.reasons,
+      findings,
+      prompt: config.dashboardShowPlaintext ? joined : null,
+    });
+
     bus.publish({
       kind: 'escalation_pending',
       requestId,
       sessionId,
       group,
-      expiresAt: Date.now() + config.escalationTimeoutMs,
+      // Was config.escalationTimeoutMs, which is the default rather than the
+      // wait in force: with a policy that sets its own, every countdown shown
+      // to a reviewer was wrong by the difference.
+      expiresAt,
       reasons: decision.reasons,
       findings: decision.perFinding
         .filter((f) => f.action === 'escalate')

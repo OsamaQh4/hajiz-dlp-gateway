@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config, ROOT, isMock, validateConfig, judgeResidency, judgeModel } from './config.js';
 import { adapterForPath } from './proxy/adapters.js';
-import { handleProxy, resolveEscalation, sendJson, pendingApprovals } from './proxy/handler.js';
+import { handleProxy, resolveEscalation, sendJson, pendingApprovals, pendingReviews } from './proxy/handler.js';
 import { bus, metrics } from './lib/events.js';
 import { watchPolicy, getPolicy, policyStatus } from './policy/policy.js';
 import { verifyChain } from './audit/audit.js';
@@ -46,6 +46,7 @@ const server = http.createServer(async (req, res) => {
           raw: safeRead(config.policyPath),
         });
       }
+      if (url.pathname === '/api/escalations') return sendJson(res, 200, pendingReviews(getPolicy()));
       if (url.pathname === '/api/audit/verify') return sendJson(res, 200, await verifyChain());
       if (url.pathname === '/health') return sendJson(res, 200, { ok: true, mode: config.upstreamMode });
       // Provider API paths are proxied; everything else is the dashboard.
