@@ -15,6 +15,7 @@ import { renderPolicy } from './pages/policy.js';
 import { renderAudit } from './pages/audit.js';
 import { renderAppliance } from './pages/appliance.js';
 import { renderApi } from './pages/api.js';
+import { renderDeployment } from './pages/deployment.js';
 import { renderHelp } from './pages/help.js';
 import { renderPlaceholder } from './pages/placeholder.js';
 import { renderSignIn } from './pages/signin.js';
@@ -26,7 +27,7 @@ const ROUTES = [
   { path: '/review', id: 'review', label: 'Review Queue', group: 'ops', icon: 'inbox', badge: 'pendingEscalations', render: renderReview },
   { path: '/policy', id: 'policy', label: 'Policy', group: 'ops', icon: 'sliders', render: renderPolicy },
   { path: '/audit', id: 'audit', label: 'Audit', group: 'ops', icon: 'ledger', render: renderAudit },
-  { path: '/deployment', id: 'deployment', label: 'Deployment', group: 'setup', icon: 'route' },
+  { path: '/deployment', id: 'deployment', label: 'Deployment', group: 'setup', icon: 'route', render: renderDeployment },
   { path: '/integrations', id: 'integrations', label: 'Integrations', group: 'setup', icon: 'plug' },
   { path: '/appliance', id: 'appliance', label: 'Appliance', group: 'setup', icon: 'server', render: renderAppliance },
   { path: '/api', id: 'api', label: 'API', group: 'setup', icon: 'code', render: renderApi },

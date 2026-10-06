@@ -33,13 +33,17 @@ export const metrics = {
   // never summed to the number of requests. Silent, and wrong in the direction
   // that makes the product look like it is doing less than it is.
   byAction: { allow: 0, pseudonymize: 0, redact: 0, escalate: 0, block: 0 },
+
+  /** How requests arrived, so the Deployment page shows the real split. */
+  byVia: { network: 0, agent: 0, baseurl: 0 },
   tierBCalls: 0,
   tierALatencies: [],
   tierBLatencies: [],
   totalLatencies: [],
 
-  record({ action, escalated = false, tierAMs, tierBMs, totalMs }) {
+  record({ action, escalated = false, tierAMs, tierBMs, totalMs, via = 'baseurl' }) {
     this.requests += 1;
+    this.byVia[via] = (this.byVia[via] ?? 0) + 1;
     // Count an action we do not know about rather than dropping it, so the
     // next one added to policy shows up as itself instead of as nothing.
     this.byAction[action] = (this.byAction[action] ?? 0) + 1;
@@ -58,6 +62,7 @@ export const metrics = {
     return {
       requests: this.requests,
       byAction: { ...this.byAction },
+      byVia: { ...this.byVia },
       tierBCalls: this.tierBCalls,
       tierBRate: this.requests ? this.tierBCalls / this.requests : 0,
       tierA: percentiles(this.tierALatencies),

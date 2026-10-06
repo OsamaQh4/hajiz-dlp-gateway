@@ -165,6 +165,36 @@ const route = async (req, res) => {
         });
       }
       if (url.pathname === '/api/appliance') return sendJson(res, 200, applianceState());
+
+      if (url.pathname === '/api/deployment') {
+        return sendJson(res, 200, {
+          // The in-path mode, and whether it is actually running.
+          networkPath: {
+            enabled: Boolean(config.proxyPort),
+            port: config.proxyPort,
+            inspect: INSPECT_HOSTS,
+            neverIntercept: NEVER_INTERCEPT,
+            ca: config.proxyPort ? caStatus() : null,
+          },
+          // Not built. Said plainly rather than shown as an empty fleet, which
+          // reads as "no machines enrolled" instead of "this does not exist".
+          agent: { built: false, note: 'The endpoint agent is not implemented yet. Machines that leave the corporate network are not covered by the in-path route.' },
+          baseUrl: { enabled: true, port: config.port },
+          traffic: metrics.snapshot().byVia,
+        });
+      }
+
+      // The certificate, for distribution to managed machines. The key has no
+      // route at all - this endpoint exists so an administrator can fetch what
+      // they must push by GPO or Intune, and nothing more.
+      if (url.pathname === '/api/deployment/ca.crt') {
+        if (!config.proxyPort) return sendJson(res, 404, { error: { message: 'the in-path proxy is not enabled' } });
+        res.writeHead(200, {
+          'content-type': 'application/x-pem-file',
+          'content-disposition': 'attachment; filename="hajiz-inspection-ca.crt"',
+        });
+        return res.end(caCertificatePem());
+      }
       if (url.pathname === '/api/escalations') return sendJson(res, 200, pendingReviews(getPolicy()));
       if (url.pathname === '/api/policy/versions') {
         return sendJson(res, 200, { versions: policyVersions.list(50) });
@@ -506,7 +536,7 @@ async function onInterceptedRequest(req, res, { hostname }) {
     // No upstream override is passed: the adapter already resolves to the
     // same host we intercepted, and a second way of choosing where a prompt is
     // sent is a second place for it to be sent somewhere wrong.
-    return handleProxy({ adapter, req, res, rawBody });
+    return handleProxy({ adapter, req, res, rawBody, via: 'network' });
   }
 
   return relayToHost(req, res, hostname, url);

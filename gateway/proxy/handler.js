@@ -52,7 +52,16 @@ export function resolveEscalation(id, approved, reviewer = 'dashboard') {
   return true;
 }
 
-export async function handleProxy({ adapter, req, res, rawBody }) {
+/**
+ * @param {string} [via] How this request reached the appliance:
+ *   'network' - routed through the in-path proxy, nothing configured on the client
+ *   'agent'   - sent by the endpoint agent on a machine off the network
+ *   'baseurl' - an application pointed at the gateway by configuration
+ * Recorded per request because the three modes have different blast radii, and
+ * an administrator asking "what happens if the agent fleet stops reporting"
+ * needs the split rather than a total.
+ */
+export async function handleProxy({ adapter, req, res, rawBody, via = 'baseurl' }) {
   const started = performance.now();
   const requestId = crypto.randomUUID();
   const sessionId = header(req, 'x-dlp-session') || header(req, 'x-dlp-user') || 'anon';
@@ -101,7 +110,7 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
     }));
 
     await finish({
-      requestId, sessionId, group, adapter, action: decision.action, decision, timings, judge: judgeInfo,
+      requestId, sessionId, group, adapter, action: decision.action, decision, timings, judge: judgeInfo, via,
       started, joined, sanitized: null, mappings: wouldTokenize,
       extra: { skipReason: result.tierBSkipReason, observed: true, wouldHave: decision.action },
     });
@@ -123,7 +132,7 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
   // ---- blocked -------------------------------------------------------------
   if (decision.action === 'block') {
     await finish({
-      requestId, sessionId, group, adapter, action: 'block', decision, timings, judge: judgeInfo,
+      requestId, sessionId, group, adapter, action: 'block', decision, timings, judge: judgeInfo, via,
       started, joined, sanitized: null, mappings: [],
       extra: { skipReason: result.tierBSkipReason },
     });
@@ -150,7 +159,7 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
       await finish({
         requestId, sessionId, group, adapter, action: 'block',
         decision: { ...decision, reasons: [...decision.reasons, `reviewer ${verdict.reviewer} declined`] },
-        timings, judge: judgeInfo, started, joined, sanitized: null, mappings: [],
+        timings, judge: judgeInfo, via, started, joined, sanitized: null, mappings: [],
         escalated, reviewMs,
       });
       const { status, body: errBody } = adapter.errorResponse(
@@ -200,7 +209,7 @@ export async function handleProxy({ adapter, req, res, rawBody }) {
   }
 
   await finish({
-    requestId, sessionId, group, adapter, action, decision, timings, judge: judgeInfo,
+    requestId, sessionId, group, adapter, action, decision, timings, judge: judgeInfo, via,
     started, joined, sanitized, mappings, escalated, reviewMs,
     extra: {
       skipReason: result.tierBSkipReason,
@@ -363,15 +372,15 @@ function requestApproval({ requestId, sessionId, group, decision, joined, policy
 
 async function finish({
   requestId, sessionId, group, adapter, action, decision, timings, judge, started, joined, sanitized, mappings,
-  escalated = false, reviewMs = 0, extra = {},
+  escalated = false, reviewMs = 0, via = 'baseurl', extra = {},
 }) {
   // Human review time is excluded: a reviewer who takes 40 seconds to click
   // approve must not show up as 40 seconds of gateway latency.
   const totalMs = round2(performance.now() - started - reviewMs);
-  metrics.record({ action, escalated, tierAMs: timings.tierAMs, tierBMs: timings.tierBMs, totalMs });
+  metrics.record({ action, escalated, tierAMs: timings.tierAMs, tierBMs: timings.tierBMs, totalMs, via });
 
   const record = summarize({
-    requestId, sessionId, group, route: adapter.route, action, decision, timings, judge,
+    requestId, sessionId, group, route: adapter.route, action, decision, timings, judge, via,
   });
   const shared = { ...record, totalMs, escalated, reviewMs: escalated ? round2(reviewMs) : null, ...extra };
   await append(shared);

@@ -111,7 +111,7 @@ export async function verifyChain(file = config.auditPath) {
 }
 
 /** Summary of one request, shaped for the log and for the dashboard. */
-export function summarize({ requestId, sessionId, group, route, action, decision, timings, judge }) {
+export function summarize({ requestId, sessionId, group, route, action, decision, timings, judge, via = 'baseurl' }) {
   const byClass = {};
   for (const f of decision.perFinding) {
     byClass[f.cls] = (byClass[f.cls] || 0) + 1;
@@ -121,6 +121,10 @@ export function summarize({ requestId, sessionId, group, route, action, decision
     sessionId,
     group: group || null,
     route,
+    // How the request reached the appliance. The three deployment modes have
+    // different blast radii, so "what would stop working" is a question about
+    // the split rather than the total.
+    via,
     action,
     findings: decision.perFinding.length,
     byClass,
