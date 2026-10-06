@@ -46,8 +46,8 @@ export function renderPolicy(mount, { store }) {
   // on the right, the way an application puts parameters beside the document
   // rather than above it.
   mount.innerHTML = `
-    <div class="toolbar">
-      <span class="toolbar__title">Policy</span>
+    <div class="pagehead__row">
+      <h1 class="pagehead">Policy</h1>
       <span class="toolbar__sub mono" id="po-path"></span>
       <span class="toolbar__spacer"></span>
       <span class="toolbar__sub">Strictest action wins · applies to the next prompt</span>
@@ -195,19 +195,19 @@ function paintClasses(el, policy, send) {
       <div class="stat__note" style="margin-top:4px">${esc(ACTION_HELP[a])}</div></div>`,
   ).join('');
 
+  // One action per class is a set of mutually exclusive choices, so it reads as
+  // a single segmented control rather than five loose buttons. The selected
+  // segment keeps its action's colour, which is what lets the column be scanned
+  // for the red and amber rows without reading any of the words.
   const rows = classes.map((cls) => {
     const chosen = actions[cls];
     const choices = ACTIONS.map((a) => `
-      <button class="btn" data-cls="${esc(cls)}" data-action="${a}"
-        style="height:26px;padding:0 9px;font-size:12px;${
-          a === chosen
-            ? `background:var(--${a}-weak);color:var(--${a});border-color:var(--${a});font-weight:700`
-            : 'border-color:transparent;background:transparent;color:var(--text-muted)'
-        }">${a}</button>`).join('');
-    return `<tr>
+      <button data-cls="${esc(cls)}" data-action="${a}" aria-pressed="${a === chosen}"
+        title="${esc(ACTION_HELP[a])}">${a}</button>`).join('');
+    return `<tr class="hoverable">
       <td><strong>${esc(cls)}</strong></td>
       <td class="muted">${esc(FOUND_BY[cls] ?? '')}</td>
-      <td style="text-align:right"><div style="display:inline-flex;gap:2px">${choices}</div></td>
+      <td style="text-align:right"><div class="seg">${choices}</div></td>
     </tr>`;
   }).join('');
 

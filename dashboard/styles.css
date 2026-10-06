@@ -13,18 +13,25 @@
  */
 
 :root {
-  /* Surfaces, from the page backwards. */
-  --bg: #f6f4f0;
-  --surface: #fffefc;
-  --surface-sunken: #efece6;
+  /* Surfaces.
+     A panel is the same colour as the page it sits on; what separates it is a
+     hairline, not a step in brightness. Stacking three greys to show structure
+     is a habit from enterprise dashboards, and it makes a console look busy
+     before any data arrives. Only transient things - menus, popovers - are
+     genuinely lifted, because they float above everything and have to read
+     that way. */
+  --bg: #f7f5f1;
+  --surface: #f7f5f1;
+  --surface-sunken: rgba(0, 0, 0, 0.035);
   --surface-raised: #ffffff;
-  --border: #e2ded6;
-  --border-strong: #cdc7bb;
+  --overlay: #ffffff;
+  --border: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.18);
 
   /* Text. */
-  --text: #1a1917;
-  --text-muted: #6b665d;
-  --text-faint: #968f84;
+  --text: #16150f;
+  --text-muted: rgba(22, 21, 15, 0.62);
+  --text-faint: rgba(22, 21, 15, 0.42);
 
   /* The brand accent. Used for the current route, primary actions and the
      "this appliance" marks — never for a policy action, which have their own. */
@@ -52,7 +59,7 @@
   --radius-sm: 6px;
   --radius-lg: 16px;
 
-  --sidebar-w: 236px;
+  --sidebar-w: 240px;
   --topbar-h: 56px;
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -65,16 +72,17 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #0e0e0d;
-  --surface: #161615;
-  --surface-sunken: #121211;
-  --surface-raised: #1d1d1b;
-  --border: #2a2a27;
-  --border-strong: #3a3a36;
+  --bg: #0f0f10;
+  --surface: #0f0f10;
+  --surface-sunken: rgba(255, 255, 255, 0.035);
+  --surface-raised: rgba(255, 255, 255, 0.06);
+  --overlay: #2e2e2e;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.16);
 
-  --text: #f0eee9;
-  --text-muted: #9c968b;
-  --text-faint: #6e685f;
+  --text: #ffffff;
+  --text-muted: rgba(255, 255, 255, 0.64);
+  --text-faint: rgba(255, 255, 255, 0.42);
 
   --accent: #4e9b76;
   --accent-hover: #5cae86;
@@ -121,7 +129,11 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
-  font-size: 14px;
+  /* Measured against the reference app: 16px body, 14px labels in normal case
+     at full strength. The first revision of this console shrank labels to 11px
+     uppercase and set an 8px rhythm, which is a third idiom - the cramped
+     security dashboard - and neither what was asked for nor easier to read. */
+  font-size: 15px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
@@ -699,17 +711,15 @@ table.data tr:last-child td {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 12px;
+  padding: 11px 14px;
   border-bottom: 1px solid var(--border);
-  background: var(--surface-sunken);
 }
 
 .panel__title {
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.045em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: normal;
+  color: var(--text);
 }
 
 .panel__spacer {
@@ -728,8 +738,8 @@ table.data tr:last-child td {
 .row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 12px;
+  gap: 12px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -744,15 +754,15 @@ table.data tr:last-child td {
 
 .row__label strong {
   display: block;
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .row__help {
-  font-size: 11.5px;
-  color: var(--text-faint);
-  line-height: 1.4;
-  margin-top: 1px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin-top: 2px;
 }
 
 .field {
@@ -798,7 +808,7 @@ table.data tr:last-child td {
 }
 
 .metric__label {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 
@@ -811,7 +821,7 @@ table.data tr:last-child td {
 }
 
 .metric__note {
-  font-size: 11px;
+  font-size: 12.5px;
   color: var(--text-faint);
 }
 
@@ -852,4 +862,157 @@ table.data--dense td {
   border-radius: 4px;
   border: 1px solid var(--border-strong);
   color: var(--text-faint);
+}
+
+/* ======================================================================
+ * Patterns taken from the reference application, after actually using it.
+ * ==================================================================== */
+
+/* A page has a heading in the body - the earlier reading that it lived only
+   in the top bar was wrong. What it does not have is a paragraph under it. */
+.pagehead {
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin: 2px 0 14px;
+}
+
+.pagehead__row {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.pagehead__row .pagehead {
+  margin: 0;
+}
+
+.pagehead__spacer {
+  flex: 1;
+}
+
+/* Mutually exclusive choices read as one control, not as loose buttons. */
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+}
+
+.seg button {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.seg button:hover {
+  color: var(--text);
+}
+
+.seg button[aria-pressed="true"] {
+  background: var(--surface-raised);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+/* The selected option keeps its action's colour, so the table still scans. */
+.seg button[aria-pressed="true"][data-action="allow"] { color: var(--allow); background: var(--allow-weak); }
+.seg button[aria-pressed="true"][data-action="pseudonymize"] { color: var(--pseudonymize); background: var(--pseudonymize-weak); }
+.seg button[aria-pressed="true"][data-action="redact"] { color: var(--redact); background: var(--redact-weak); }
+.seg button[aria-pressed="true"][data-action="escalate"] { color: var(--escalate); background: var(--escalate-weak); }
+.seg button[aria-pressed="true"][data-action="block"] { color: var(--block); background: var(--block-weak); }
+
+/* Rows are calm until approached: actions appear on hover, which keeps a long
+   log quiet while leaving everything one movement away. */
+tr.hoverable:hover {
+  background: var(--surface-sunken);
+}
+
+tr.hoverable .reveal {
+  opacity: 0;
+  transition: opacity 90ms ease-out;
+}
+
+tr.hoverable:hover .reveal,
+tr.hoverable:focus-within .reveal {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  tr.hoverable .reveal {
+    transition: none;
+  }
+}
+
+/* Only things that float are genuinely lifted off the page. */
+.popover {
+  background: var(--overlay);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ---- imagery ------------------------------------------------------------
+ * Abstract gradient fields, in the register the reference app uses for voice
+ * avatars and hero cards rather than the painterly one it uses for category
+ * tiles. They appear only where there is no data and something to say: the
+ * sign-in screen, onboarding, and empty states.
+ *
+ * They are drawn with CSS gradients rather than shipped as image files. An
+ * appliance installed on an isolated network cannot fetch anything, binary
+ * assets would have to be versioned and cache-busted, and a gradient scales to
+ * any size for nothing. Nothing in an operational view gets one - a request log
+ * showing whether a national ID leaked is not a place for decoration.
+ */
+.orb {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  flex: none;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.85), transparent 42%),
+    radial-gradient(circle at 70% 72%, var(--orb-b, #6aa6d6), transparent 58%),
+    radial-gradient(circle at 38% 68%, var(--orb-a, #2d6a4f), transparent 62%),
+    linear-gradient(140deg, var(--orb-a, #2d6a4f), var(--orb-b, #6aa6d6));
+  filter: saturate(0.92);
+}
+
+.orb--sm { width: 56px; height: 56px; }
+.orb--lg { width: 148px; height: 148px; }
+
+.emptyState {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 34px 26px;
+}
+
+.emptyState__body {
+  max-width: 46ch;
+}
+
+.emptyState__title {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0 0 5px;
+}
+
+.emptyState__text {
+  font-size: 13.5px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
 }

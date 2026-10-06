@@ -42,26 +42,47 @@ const PLANNED = {
   },
 };
 
+/*
+ * A colour pair per page, so each unbuilt screen has its own mark rather than
+ * all of them sharing one. Same idea as a per-item avatar in a list: identity,
+ * not decoration. Imagery is confined to pages like this one - with nothing to
+ * show and something to say - and never appears over operational data.
+ */
+const ORBS = {
+  review: ['#b06c14', '#d99b3f'],
+  policy: ['#2d6a4f', '#6aa6d6'],
+  audit: ['#4a4a7a', '#8a7ab8'],
+  deployment: ['#1f6f7a', '#58b3b0'],
+  integrations: ['#6b4ba3', '#b07fd0'],
+  appliance: ['#7a4a4a', '#c08a6a'],
+  api: ['#2b5f8a', '#5e9ddb'],
+  help: ['#3d6b3a', '#8fb26a'],
+};
+
 export function renderPlaceholder(mount, route) {
   const plan = PLANNED[route.id] ?? { blurb: '', backend: [] };
+  const [a, b] = ORBS[route.id] ?? ['#2d6a4f', '#6aa6d6'];
 
   mount.innerHTML = `
-    <p class="eyebrow">${esc(route.label)}</p>
-    <h1 class="display">Designed, not yet built.</h1>
-    <p class="lede">${esc(plan.blurb)}</p>
+    <div class="pagehead__row"><h1 class="pagehead">${esc(route.label)}</h1></div>
 
-    <div class="notBuilt" style="margin-top:24px">
-      <h3>What this page needs behind it</h3>
-      <ul style="margin:8px 0 0;padding-left:18px">
-        ${plan.backend.map((b) => `<li style="margin-bottom:4px">${esc(b)}</li>`).join('')}
-      </ul>
-    </div>
-
-    <p class="stat__note" style="margin-top:18px;max-width:62ch">
-      The approved design for this screen is in <span class="mono">designs/</span>. This placeholder is
-      deliberate: a mocked page that looks live is indistinguishable from a working one until someone
-      relies on it.
-    </p>`;
+    <div class="panel">
+      <div class="emptyState">
+        <div class="orb orb--lg" style="--orb-a:${a};--orb-b:${b}"></div>
+        <div class="emptyState__body">
+          <p class="emptyState__title">Designed, not yet built</p>
+          <p class="emptyState__text">${esc(plan.blurb)}</p>
+          <p class="emptyState__text" style="margin-top:10px">A mocked page that looks live is
+          indistinguishable from a working one until someone relies on it, so this one says what it is.</p>
+        </div>
+      </div>
+      <div class="panel__head" style="border-top:1px solid var(--border);border-bottom:0">
+        <span class="panel__title">What this page needs behind it</span>
+      </div>
+      <div class="panel__body panel__body--flush">
+        ${plan.backend.map((item) => `<div class="row"><div class="row__label">${esc(item)}</div></div>`).join('')}
+      </div>
+    </div>`;
 
   return null;
 }

@@ -15,10 +15,10 @@ const ACTIONS = ['allow', 'pseudonymize', 'redact', 'escalate', 'block'];
 
 export function renderMonitor(mount, { store }) {
   mount.innerHTML = `
-    <div class="toolbar">
-      <span class="toolbar__title">Traffic</span>
+    <div class="pagehead__row">
+      <h1 class="pagehead">Monitor</h1>
       <span class="toolbar__sub" id="mo-window">since the gateway started</span>
-      <span class="toolbar__spacer"></span>
+      <span class="pagehead__spacer"></span>
       <input class="search" id="mo-filter" placeholder="Filter by class, action or session" />
       <select class="field field--text" id="mo-action" style="height:28px;width:120px">
         <option value="">All actions</option>
@@ -195,9 +195,16 @@ function paintLog(mount, state, filter, actionFilter) {
     `${events.length} shown${state.metrics?.requests ? ` of ${state.metrics.requests}` : ''}`;
 
   if (!events.length) {
-    el.innerHTML = `<div class="empty">${
-      (state.metrics?.requests ?? 0) ? 'Nothing matches that filter.' : 'No requests yet.'
-    }</div>`;
+    const filtered = (state.metrics?.requests ?? 0) > 0;
+    el.innerHTML = filtered
+      ? `<div class="empty">Nothing matches that filter.</div>`
+      : `<div class="emptyState">
+          <div class="orb" style="--orb-a:#2d6a4f;--orb-b:#6aa6d6"></div>
+          <div class="emptyState__body">
+            <p class="emptyState__title">Nothing has passed through yet</p>
+            <p class="emptyState__text">Point a client at this gateway and every prompt it sends appears
+            here, with what was found in it and what happened as a result.</p>
+          </div></div>`;
     return;
   }
 
@@ -205,7 +212,7 @@ function paintLog(mount, state, filter, actionFilter) {
     const classes = Object.entries(e.byClass ?? {})
       .map(([cls, n]) => `${cls}${n > 1 ? `×${n}` : ''}`)
       .join(' ');
-    return `<tr>
+    return `<tr class="hoverable">
       <td class="mono faint" style="white-space:nowrap">${time(e.ts)}</td>
       <td class="mono">${esc(e.sessionId ?? 'anon')}</td>
       <td class="muted">${esc(e.group ?? '—')}</td>

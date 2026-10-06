@@ -10,10 +10,10 @@
 
 export function renderReview(mount, { store }) {
   mount.innerHTML = `
-    <div class="toolbar">
-      <span class="toolbar__title" id="rv-headline">Held for review</span>
+    <div class="pagehead__row">
+      <h1 class="pagehead" id="rv-headline">Review queue</h1>
       <span class="toolbar__sub" id="rv-lede">Nothing is waiting</span>
-      <span class="toolbar__spacer"></span>
+      <span class="pagehead__spacer"></span>
       <span class="toolbar__sub">Approve sends the prompt as written · refuse stops it and notifies the sender</span>
     </div>
     <div id="rv-ratchet"></div>
@@ -85,7 +85,13 @@ export function renderReview(mount, { store }) {
 
     const body = mount.querySelector('#rv-body');
     if (!items.length) {
-      body.innerHTML = `<div class="card"><div class="empty">The queue is empty.</div></div>`;
+      body.innerHTML = `<div class="panel"><div class="emptyState">
+        <div class="orb" style="--orb-a:#b06c14;--orb-b:#d99b3f"></div>
+        <div class="emptyState__body">
+          <p class="emptyState__title">Nothing is waiting</p>
+          <p class="emptyState__text">When policy sends a prompt to a person, it appears here with a
+          countdown. Prompts time out whether or not anyone is looking.</p>
+        </div></div></div>`;
       return;
     }
 
