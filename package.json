@@ -21,6 +21,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
     "js-yaml": "^5.4.2",
+    "node-forge": "^1.4.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

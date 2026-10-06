@@ -27,7 +27,12 @@ bus.setMaxListeners(0);
 /** Rolling latency/decision metrics for the dashboard header. */
 export const metrics = {
   requests: 0,
-  byAction: { allow: 0, pseudonymize: 0, escalate: 0, block: 0 },
+  // Every action policy can take. `redact` was added to the policy without
+  // being added here, and because the counter below ignored unknown keys, a
+  // redaction was recorded nowhere: the console showed none, and the actions
+  // never summed to the number of requests. Silent, and wrong in the direction
+  // that makes the product look like it is doing less than it is.
+  byAction: { allow: 0, pseudonymize: 0, redact: 0, escalate: 0, block: 0 },
   tierBCalls: 0,
   tierALatencies: [],
   tierBLatencies: [],
@@ -35,7 +40,9 @@ export const metrics = {
 
   record({ action, escalated = false, tierAMs, tierBMs, totalMs }) {
     this.requests += 1;
-    if (this.byAction[action] !== undefined) this.byAction[action] += 1;
+    // Count an action we do not know about rather than dropping it, so the
+    // next one added to policy shows up as itself instead of as nothing.
+    this.byAction[action] = (this.byAction[action] ?? 0) + 1;
     // An approved escalation is finally recorded as `pseudonymize`, so without
     // this the "held for a human" count would always read zero.
     if (escalated && action !== 'escalate') this.byAction.escalate += 1;

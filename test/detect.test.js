@@ -155,3 +155,29 @@ test('retraction does not invent an IBAN out of ordinary capitals', () => {
   assert.equal(scanTierA('Order ref AB12 XXXX YYYY ZZZZ QQQQ WWWW today').filter((f) => f.cls === 'iban').length, 0);
   assert.equal(scanTierA('Pay to SA0380000000608010167518 tomorrow').filter((f) => f.cls === 'iban').length, 0);
 });
+
+test('every policy action is counted, including ones added later', async () => {
+  // `redact` was in policy.yaml for days while the metrics object still listed
+  // four actions, and the counter ignored keys it did not recognise. Each
+  // redaction was therefore recorded nowhere: the console showed zero, and the
+  // per-action counts never summed to the number of requests.
+  const { metrics } = await import('../gateway/lib/events.js');
+  const before = metrics.snapshot();
+
+  for (const action of ['allow', 'pseudonymize', 'redact', 'escalate', 'block']) {
+    metrics.record({ action, tierAMs: 1, tierBMs: null, totalMs: 1 });
+  }
+
+  const after = metrics.snapshot();
+  for (const action of ['allow', 'pseudonymize', 'redact', 'escalate', 'block']) {
+    assert.equal(
+      after.byAction[action] - (before.byAction[action] ?? 0),
+      1,
+      `${action} was not counted`,
+    );
+  }
+
+  // The thing the bug broke: the parts add up to the whole.
+  const counted = Object.values(after.byAction).reduce((a, b) => a + b, 0);
+  assert.ok(counted >= after.requests, 'no request may be left uncounted');
+});

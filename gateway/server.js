@@ -14,6 +14,8 @@ import { vault } from './vault/vault.js';
 import * as accounts from './auth/accounts.js';
 import * as session from './auth/session.js';
 import { applianceState } from './auth/appliance.js';
+import { createProxy, shouldInspect, INSPECT_HOSTS, NEVER_INTERCEPT } from './intercept/proxy.js';
+import { loadCA, caStatus, caCertificatePem } from './intercept/ca.js';
 
 const DASHBOARD = path.join(ROOT, 'dashboard');
 const MIME = {
@@ -486,6 +488,65 @@ server.listen(config.port, () => {
   console.log('');
 });
 
+/**
+ * What to do with a request the proxy has decrypted.
+ *
+ * A prompt goes through the same detect, decide, tokenize path as one that
+ * arrived on the direct route - there is one pipeline, and interception is
+ * only a different way of getting a request to it. Anything else on an
+ * inspected host (listing models, counting tokens, fetching an avatar) is
+ * relayed untouched to the real host.
+ */
+async function onInterceptedRequest(req, res, { hostname }) {
+  const url = new URL(req.url, `https://${hostname}`);
+  const adapter = adapterForPath(url.pathname);
+
+  if (req.method === 'POST' && adapter) {
+    const rawBody = await readBody(req);
+    // No upstream override is passed: the adapter already resolves to the
+    // same host we intercepted, and a second way of choosing where a prompt is
+    // sent is a second place for it to be sent somewhere wrong.
+    return handleProxy({ adapter, req, res, rawBody });
+  }
+
+  return relayToHost(req, res, hostname, url);
+}
+
+/** Pass a request on to the real host over a fresh TLS connection. */
+function relayToHost(req, res, hostname, url) {
+  const upstream = https.request(
+    {
+      hostname,
+      port: 443,
+      path: `${url.pathname}${url.search}`,
+      method: req.method,
+      headers: { ...req.headers, host: hostname },
+    },
+    (upstreamRes) => {
+      res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+      upstreamRes.pipe(res);
+    },
+  );
+  upstream.on('error', (err) => {
+    if (!res.headersSent) res.writeHead(502, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: { type: 'upstream_error', message: err.message } }));
+  });
+  req.pipe(upstream);
+}
+
 if (adminServer) adminServer.listen(config.adminPort);
+
+if (config.proxyPort) {
+  // Creating the CA on first start takes a moment and writes the key, so it is
+  // done before the port opens rather than inside the first handshake.
+  loadCA();
+  const proxy = createProxy({ onRequest: onInterceptedRequest });
+  proxy.on('error', onError(config.proxyPort));
+  proxy.listen(config.proxyPort, () => {
+    console.log(`  proxy       http://localhost:${config.proxyPort}  (in-path; point managed machines here)`);
+    console.log(`  inspecting  ${INSPECT_HOSTS.length} hosts · ${NEVER_INTERCEPT.length} never intercepted`);
+    console.log(`  CA          ${caStatus().fingerprint?.slice(0, 29)}…  (data/ca/inspection-ca.crt)`);
+  });
+}
 
 export { server, adminServer };

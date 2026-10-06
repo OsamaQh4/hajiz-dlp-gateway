@@ -22,6 +22,16 @@ export const config = {
    */
   adminPort: process.env.DLP_ADMIN_PORT ? int(process.env.DLP_ADMIN_PORT, 9090) : null,
 
+  /**
+   * The in-path forward proxy.
+   *
+   * Unset means off, and the gateway only serves clients that were pointed at
+   * it by configuration. Set, and managed machines can be routed through this
+   * port instead: the employee changes nothing, and HTTPS to the AI hosts is
+   * terminated here with a certificate from the inspection CA.
+   */
+  proxyPort: process.env.DLP_PROXY_PORT ? int(process.env.DLP_PROXY_PORT, 8888) : null,
+
   /** PEM paths. When set, the console is served over TLS instead of HTTP. */
   tls: {
     cert: process.env.DLP_TLS_CERT || null,
