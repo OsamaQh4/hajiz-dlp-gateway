@@ -6,6 +6,8 @@ import { adapterForPath } from './proxy/adapters.js';
 import { handleProxy, resolveEscalation, sendJson, pendingApprovals, pendingReviews } from './proxy/handler.js';
 import { bus, metrics } from './lib/events.js';
 import { watchPolicy, getPolicy, policyStatus } from './policy/policy.js';
+import { writePolicy, rollbackPolicy } from './policy/write.js';
+import * as policyVersions from './policy/versions.js';
 import { verifyChain } from './audit/audit.js';
 import { vault } from './vault/vault.js';
 
@@ -28,12 +30,29 @@ const server = http.createServer(async (req, res) => {
         const rawBody = await readBody(req);
         return await handleProxy({ adapter, req, res, rawBody });
       }
+      if (url.pathname === '/api/policy/rollback') {
+        const body = JSON.parse((await readBody(req)) || '{}');
+        const text = policyVersions.read(body.seq);
+        if (!text) return sendJson(res, 404, { ok: false, problems: [`no stored version ${body.seq}`] });
+        const result = rollbackPolicy(text, { seq: body.seq, by: 'console' });
+        return sendJson(res, result.ok ? 200 : 422, { ...result, status: policyStatus() });
+      }
       if (url.pathname.startsWith('/api/escalations/')) {
         const id = url.pathname.split('/').pop();
         const body = JSON.parse((await readBody(req)) || '{}');
         const ok = resolveEscalation(id, body.approved === true, body.reviewer || 'dashboard');
         return sendJson(res, ok ? 200 : 404, { ok });
       }
+    }
+
+    if (req.method === 'PUT' && new URL(req.url, 'http://x').pathname === '/api/policy') {
+      const body = JSON.parse((await readBody(req)) || '{}');
+      const edits = Array.isArray(body.edits) ? body.edits : [];
+      if (!edits.length) return sendJson(res, 400, { ok: false, problems: ['no edits given'] });
+      // 422 rather than 400 on a rejected edit: the request was well formed,
+      // the policy it would produce is the thing that is not acceptable.
+      const result = writePolicy(edits, { by: body.by ?? 'console', summary: body.summary ?? '' });
+      return sendJson(res, result.ok ? 200 : 422, { ...result, status: policyStatus() });
     }
 
     if (req.method === 'GET') {
@@ -47,6 +66,9 @@ const server = http.createServer(async (req, res) => {
         });
       }
       if (url.pathname === '/api/escalations') return sendJson(res, 200, pendingReviews(getPolicy()));
+      if (url.pathname === '/api/policy/versions') {
+        return sendJson(res, 200, { versions: policyVersions.list(50) });
+      }
       if (url.pathname === '/api/audit/verify') return sendJson(res, 200, await verifyChain());
       if (url.pathname === '/health') return sendJson(res, 200, { ok: true, mode: config.upstreamMode });
       // Provider API paths are proxied; everything else is the dashboard.
