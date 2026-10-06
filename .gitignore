@@ -5,3 +5,7 @@ data/
 scripts/demo-env.ps1
 docs/template/
 data/jev-result.json
+
+# Generated design sources and exports. Large binaries, and the console
+# in dashboard/ is the thing that actually ships.
+designs/
