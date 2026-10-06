@@ -1,55 +1,72 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Hajiz — AI DLP Gateway</title>
+    <title>Hajiz console</title>
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="icon" href="/mark.svg" />
   </head>
   <body>
-    <header class="topbar">
-      <div class="brand">
-        <span class="mark">⬢</span>
-        <div>
-          <h1>Hajiz</h1>
-          <p>AI data-loss prevention gateway</p>
+    <div class="app">
+      <!--
+        The sidebar is the whole product in one column. Order is deliberate:
+        the four pages someone opens every day first, then the pages they touch
+        once while setting the appliance up, then help. Review queue carries a
+        count because a prompt sitting there has a employee waiting on it.
+      -->
+      <aside class="sidebar">
+        <div class="sidebar__brand">
+          <svg class="sidebar__mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 2.5 4 6v6.2c0 4.6 3.2 8.4 8 9.3 4.8-.9 8-4.7 8-9.3V6l-8-3.5Z"
+                  stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+            <path d="M12 2.5V21.5" stroke="currentColor" stroke-width="1.6" />
+          </svg>
+          <span class="sidebar__name">Hajiz</span>
         </div>
-      </div>
-      <div class="status" id="status">
-        <span class="dot" id="conn-dot"></span>
-        <span id="conn-text">connecting…</span>
-      </div>
-    </header>
 
-    <section class="tiles" id="tiles"></section>
+        <div class="sidebar__scroll">
+          <nav class="navgroup" aria-label="Operations">
+            <div class="navgroup__label">Operations</div>
+            <div id="nav-ops"></div>
+          </nav>
 
-    <div id="escalations"></div>
+          <nav class="navgroup" aria-label="Setup">
+            <div class="navgroup__label">Setup</div>
+            <div id="nav-setup"></div>
+          </nav>
+        </div>
 
-    <main class="layout">
-      <aside class="feed">
-        <h2>Live traffic</h2>
-        <ul id="feed-list"></ul>
-        <p class="empty" id="feed-empty">Nothing yet. Send a prompt through the gateway.</p>
+        <div class="sidebar__foot">
+          <div class="applianceCard">
+            <span class="applianceCard__name" id="appliance-name">gw-local</span>
+            <span class="applianceCard__mode">
+              <span class="dot" id="appliance-dot"></span>
+              <span id="appliance-mode">connecting…</span>
+            </span>
+          </div>
+        </div>
       </aside>
 
-      <section class="detail" id="detail">
-        <div class="placeholder">
-          <h2>Select a request</h2>
-          <p>
-            Each row shows one prompt on its way to a frontier model: what the employee
-            typed, what actually left the network, and why.
-          </p>
-        </div>
-      </section>
-    </main>
+      <div class="main">
+        <header class="topbar">
+          <span class="topbar__title" id="page-title">Monitor</span>
+          <span class="topbar__spacer"></span>
+          <span class="live">
+            <span class="dot" id="conn-dot"></span>
+            <span id="conn-text">connecting…</span>
+          </span>
+          <div class="themeToggle" role="group" aria-label="Theme">
+            <button type="button" data-theme-set="light" aria-pressed="true">Light</button>
+            <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+          </div>
+        </header>
 
-    <footer class="footer">
-      <span id="footer-policy"></span>
-      <span id="footer-judge"></span>
-      <span id="footer-mode"></span>
-      <button id="verify-btn" type="button">Verify audit chain</button>
-      <span id="verify-result"></span>
-    </footer>
+        <main class="content">
+          <div class="page" id="page"></div>
+        </main>
+      </div>
+    </div>
 
     <script type="module" src="/app.js"></script>
   </body>

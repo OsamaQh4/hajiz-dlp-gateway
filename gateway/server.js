@@ -119,6 +119,11 @@ function state() {
     },
     policy: policyStatus(),
     actions: getPolicy().actions,
+    // The console shows the gate, the wait and the ratchet limit beside the
+    // traffic they explain. Served from the live policy rather than defaulted
+    // in the page, so a console that has drifted from policy.yaml says so.
+    thresholds: getPolicy().thresholds ?? {},
+    escalation: getPolicy().escalation ?? {},
     metrics: metrics.snapshot(),
     vault: vault.stats(),
     pendingEscalations: pendingApprovals.size,
@@ -146,6 +151,16 @@ function sseEvents(req, res) {
 function serveStatic(pathname, res) {
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   const file = path.join(DASHBOARD, rel);
+  // The console routes client-side, so a deep link like /policy names a page,
+  // not a file. A path with no extension falls back to the shell, which then
+  // renders the right page. Anything that does name a file still 404s honestly.
+  if (!path.extname(rel)) {
+    const shell = path.join(DASHBOARD, 'index.html');
+    if (fs.existsSync(shell)) {
+      res.writeHead(200, { 'content-type': MIME['.html'] });
+      return fs.createReadStream(shell).pipe(res);
+    }
+  }
   if (!file.startsWith(DASHBOARD) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
     res.writeHead(404, { 'content-type': 'text/plain' });
     return res.end('not found');

@@ -1,269 +1,207 @@
-const feedList = document.getElementById('feed-list');
-const feedEmpty = document.getElementById('feed-empty');
-const detail = document.getElementById('detail');
-const tiles = document.getElementById('tiles');
-const escalations = document.getElementById('escalations');
-
-const requests = new Map();
-let selectedId = null;
-let latest = null;
-
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-connect();
-document.getElementById('verify-btn').addEventListener('click', verifyAudit);
-
-function connect() {
-  const source = new EventSource('/api/events');
-  source.onopen = () => setConn('live', 'connected');
-  source.onerror = () => setConn('dead', 'reconnecting…');
-  source.onmessage = (e) => {
-    const payload = JSON.parse(e.data);
-    if (payload.kind === 'hello') return hydrate(payload.state);
-    handleEvent(payload);
-    refreshState();
-  };
-}
-
-function setConn(cls, text) {
-  document.getElementById('conn-dot').className = `dot ${cls}`;
-  document.getElementById('conn-text').textContent = text;
-}
-
-function hydrate(state) {
-  latest = state;
-  renderTiles(state);
-  renderFooter(state);
-  renderModeBanner(state);
-  for (const e of state.events || []) handleEvent(e);
-}
-
-async function refreshState() {
-  try {
-    const state = await (await fetch('/api/state')).json();
-    latest = state;
-    renderTiles(state);
-    renderFooter(state);
-    renderModeBanner(state);
-  } catch {
-    /* the SSE reconnect will catch us up */
-  }
-}
-
-function handleEvent(event) {
-  if (event.kind === 'request') {
-    requests.set(event.requestId, event);
-    addFeedRow(event);
-    if (!selectedId) select(event.requestId);
-  } else if (event.kind === 'escalation_pending') {
-    renderEscalation(event);
-  } else if (event.kind === 'escalation_resolved') {
-    document.getElementById(`esc-${event.requestId}`)?.remove();
-  }
-}
-
-function addFeedRow(event) {
-  feedEmpty.style.display = 'none';
-  const li = document.createElement('li');
-  li.id = `row-${event.requestId}`;
-  li.innerHTML = `
-    <div class="row">
-      <span class="pill ${esc(event.action)}">${event.observed ? 'would ' : ''}${esc(event.action)}</span>
-      <span class="time">${new Date(event.ts).toLocaleTimeString()}</span>
-    </div>
-    <div class="summary">
-      ${event.findings} finding${event.findings === 1 ? '' : 's'}
-      · ${esc(Object.keys(event.byClass || {}).join(', ') || 'clean')}
-      · ${fmt(event.totalMs)} ms
-    </div>`;
-  li.addEventListener('click', () => select(event.requestId));
-  feedList.prepend(li);
-  while (feedList.children.length > 80) feedList.lastChild.remove();
-}
-
-function select(id) {
-  selectedId = id;
-  for (const li of feedList.children) li.classList.toggle('selected', li.id === `row-${id}`);
-  renderDetail(requests.get(id));
-}
-
-function renderDetail(event) {
-  if (!event) return;
-  const leaks = (event.mappings || []).filter((m) => m.original);
-  const hasPlaintext = event.original != null;
-
-  detail.innerHTML = `
-    <h2>Request ${esc(event.requestId.slice(0, 8))}</h2>
-    <div class="meta">
-      <span>decision <b class="pill ${esc(event.action)}">${event.observed ? 'would ' : ''}${esc(event.action)}</b></span>
-      <span>session <b>${esc(event.sessionId)}</b></span>
-      <span>route <b>${esc(event.route)}</b></span>
-      <span>tier A <b>${fmt(event.tierAMs)} ms</b></span>
-      <span>tier B <b>${event.tierBRan ? `${fmt(event.tierBMs)} ms` : 'not needed'}</b></span>
-      <span>gateway <b>${fmt(event.totalMs)} ms</b></span>
-      ${event.reviewMs ? `<span>human review <b>${(event.reviewMs / 1000).toFixed(1)} s</b></span>` : ''}
-      ${event.judgeModel ? `<span>judge <b>${esc(event.judgeModel)}</b></span>` : ''}
-    </div>
-    ${event.reasons?.length ? `<div class="notice">${event.reasons.map(esc).join(' · ')}</div>` : ''}
-    ${
-      event.judgeDegraded
-        ? `<div class="notice">Semantic judge unavailable — this decision used Tier A signals and degraded cues only.${
-            event.judgeError ? `<br><span class="mono">${esc(event.judgeError)}</span>` : ''
-          }</div>`
-        : ''
-    }
-    ${!event.tierBRan && event.skipReason ? `<div class="notice">Tier B skipped: ${esc(event.skipReason)}</div>` : ''}
-
-    <div class="split">
-      <div class="pane">
-        <h3>What the employee typed</h3>
-        <pre>${hasPlaintext ? highlightLeaks(event.original, leaks) : '<span class="placeholder">hidden — dashboard plaintext is disabled</span>'}</pre>
-      </div>
-      <div class="pane">
-        <h3>What actually left the network</h3>
-        ${
-          event.observed
-            ? '<div class="notice">Observe mode: this went out <b>unmodified</b>. The spans below are what enforcement would have replaced.</div>'
-            : ''
-        }
-        <pre>${rightPane(event, hasPlaintext)}</pre>
-      </div>
-    </div>
-
-    ${
-      event.mappings?.length
-        ? `<table>
-            <thead><tr><th>placeholder</th><th>class</th><th>detected by</th><th>tier</th><th>confidence</th><th>why</th></tr></thead>
-            <tbody>
-              ${event.mappings
-                .map(
-                  (m) => `<tr>
-                    <td class="mono">${esc(m.token)}</td>
-                    <td>${esc(m.cls)}</td>
-                    <td class="mono">${esc(m.detector)}</td>
-                    <td class="${m.tier === 'A' ? 'tierA' : 'tierB'}">${esc(m.tier)}</td>
-                    <td class="mono">${(m.confidence ?? 0).toFixed(2)}</td>
-                    <td>${esc(m.rationale || '')}</td>
-                  </tr>`,
-                )
-                .join('')}
-            </tbody>
-          </table>`
-        : '<p class="empty">No sensitive spans in this request.</p>'
-    }`;
-}
-
-/**
- * What genuinely left the network. In observe mode nothing is altered, so the
- * honest answer is the original text - showing an empty pane under the heading
- * "what actually left the network" said the opposite of the truth.
+/*
+ * Hajiz console — shell, router and live state.
+ *
+ * No framework and no build step on purpose. This ships inside an appliance
+ * that may be installed on a network with no route to npm, and a console that
+ * needs a toolchain to patch is a console that does not get patched.
+ *
+ * Pages are ES modules under /pages. Each exports { title, render(mount, ctx) }
+ * and may export stop() to release anything it subscribed to.
  */
-function rightPane(event, hasPlaintext) {
-  if (!hasPlaintext) return '<span class="placeholder">hidden — dashboard plaintext is disabled</span>';
-  if (event.observed) return highlightLeaks(event.original, (event.mappings || []).filter((m) => m.original));
-  if (event.action === 'block') return '<span class="placeholder">nothing — the request was blocked</span>';
-  return highlightTokens(event.sanitized);
-}
 
-function highlightLeaks(text, mappings) {
-  let html = esc(text);
-  const seen = new Set();
-  for (const m of [...mappings].sort((a, b) => (b.original?.length || 0) - (a.original?.length || 0))) {
-    if (!m.original || seen.has(m.original)) continue;
-    seen.add(m.original);
-    html = html.replace(new RegExp(escapeRe(esc(m.original)), 'g'), (hit) => `<mark class="leak">${hit}</mark>`);
+import { renderMonitor } from './pages/monitor.js';
+import { renderPlaceholder } from './pages/placeholder.js';
+
+// ------------------------------------------------------------------ routes --
+
+const ROUTES = [
+  { path: '/', id: 'monitor', label: 'Monitor', group: 'ops', icon: 'activity', render: renderMonitor },
+  { path: '/review', id: 'review', label: 'Review queue', group: 'ops', icon: 'inbox', badge: 'pendingEscalations' },
+  { path: '/policy', id: 'policy', label: 'Policy', group: 'ops', icon: 'sliders' },
+  { path: '/audit', id: 'audit', label: 'Audit', group: 'ops', icon: 'ledger' },
+  { path: '/deployment', id: 'deployment', label: 'Deployment', group: 'setup', icon: 'route' },
+  { path: '/integrations', id: 'integrations', label: 'Integrations', group: 'setup', icon: 'plug' },
+  { path: '/appliance', id: 'appliance', label: 'Appliance', group: 'setup', icon: 'server' },
+  { path: '/api', id: 'api', label: 'API', group: 'setup', icon: 'code' },
+  { path: '/help', id: 'help', label: 'Help', group: 'setup', icon: 'help' },
+];
+
+const ICONS = {
+  activity: 'M3 12h4l3-8 4 16 3-8h4',
+  inbox: 'M3 13h5l1.5 3h5L16 13h5M4 6h16l1 7v5H3v-5l1-7Z',
+  sliders: 'M4 7h10M18 7h2M4 17h4M12 17h8M15 4v6M8 14v6',
+  ledger: 'M5 3h11l3 3v15H5V3Zm3 6h8M8 13h8M8 17h5',
+  route: 'M5 6h4a4 4 0 0 1 4 4v4a4 4 0 0 0 4 4h2M5 6a1.6 1.6 0 1 0 0-.1M19 18a1.6 1.6 0 1 0 0-.1',
+  plug: 'M9 3v6M15 3v6M7 9h10v3a5 5 0 0 1-10 0V9Zm5 8v4',
+  server: 'M4 5h16v5H4V5Zm0 9h16v5H4v-5Zm3-6.5h.01M7 16.5h.01',
+  code: 'm9 7-5 5 5 5M15 7l5 5-5 5',
+  help: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm-1.8-10.5a1.8 1.8 0 1 1 2.6 1.6c-.5.3-.8.8-.8 1.4M12 17h.01',
+};
+
+// ------------------------------------------------------------------- state --
+
+export const store = {
+  state: null,
+  connected: false,
+  listeners: new Set(),
+
+  set(next) {
+    this.state = next;
+    this.listeners.forEach((fn) => fn(next));
+  },
+
+  subscribe(fn) {
+    this.listeners.add(fn);
+    if (this.state) fn(this.state);
+    return () => this.listeners.delete(fn);
+  },
+};
+
+async function pullState() {
+  try {
+    const res = await fetch('/api/state');
+    if (!res.ok) throw new Error(`state ${res.status}`);
+    store.set(await res.json());
+    setConnection(true);
+  } catch {
+    setConnection(false);
   }
-  return html;
 }
 
-function highlightTokens(text) {
-  return esc(text).replace(/\b[A-Z]+_\d+\b/g, (t) => `<mark class="token">${t}</mark>`);
+function setConnection(ok) {
+  store.connected = ok;
+  const dot = document.getElementById('conn-dot');
+  const text = document.getElementById('conn-text');
+  dot.className = `dot ${ok ? 'dot--live' : 'dot--off'}`;
+  text.textContent = ok ? 'Live' : 'Gateway unreachable';
 }
 
-function renderEscalation(event) {
-  const div = document.createElement('div');
-  div.className = 'banner';
-  div.id = `esc-${event.requestId}`;
-  div.innerHTML = `
-    <h3>Human review requested — session ${esc(event.sessionId)}</h3>
-    <div class="why">
-      ${event.findings
-        .map((f) => `<span class="mono">${esc(f.cls)}</span> (${(f.confidence ?? 0).toFixed(2)}) — ${esc(f.rationale || f.preview || '')}`)
-        .join('<br>')}
-    </div>
-    <button class="approve" data-approve="1">Approve and send (pseudonymized)</button>
-    <button class="deny">Decline</button>`;
-  div.querySelector('.approve').addEventListener('click', () => resolve(event.requestId, true));
-  div.querySelector('.deny').addEventListener('click', () => resolve(event.requestId, false));
-  escalations.prepend(div);
+/*
+ * The gateway pushes an event per request over SSE. Rather than thread each
+ * event type through the pages, any event re-pulls /api/state: the payload is
+ * small, it keeps one source of truth, and a page never has to merge a partial
+ * update into a list it is already showing.
+ */
+function openEventStream() {
+  let source;
+  const connect = () => {
+    source = new EventSource('/api/events');
+    source.onmessage = () => pullState();
+    source.onopen = () => setConnection(true);
+    source.onerror = () => {
+      setConnection(false);
+      source.close();
+      setTimeout(connect, 3000);
+    };
+  };
+  connect();
 }
 
-async function resolve(requestId, approved) {
-  await fetch(`/api/escalations/${requestId}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ approved, reviewer: 'security-analyst' }),
+// ------------------------------------------------------------------ router --
+
+let current = null;
+
+function navigate(path, { replace = false } = {}) {
+  const route = ROUTES.find((r) => r.path === path) ?? ROUTES[0];
+  if (replace) history.replaceState({}, '', route.path);
+  else history.pushState({}, '', route.path);
+  show(route);
+}
+
+function show(route) {
+  if (current?.stop) current.stop();
+  current = null;
+
+  document.getElementById('page-title').textContent = route.label;
+  document.title = `${route.label} · Hajiz`;
+  for (const el of document.querySelectorAll('.nav__item')) {
+    el.toggleAttribute('aria-current', el.dataset.route === route.id);
+    if (el.dataset.route === route.id) el.setAttribute('aria-current', 'page');
+  }
+
+  const mount = document.getElementById('page');
+  mount.innerHTML = '';
+
+  const render = route.render ?? ((m) => renderPlaceholder(m, route));
+  current = render(mount, { store, navigate }) ?? null;
+}
+
+function buildNav() {
+  for (const route of ROUTES) {
+    const el = document.createElement('a');
+    el.className = 'nav__item';
+    el.href = route.path;
+    el.dataset.route = route.id;
+    el.innerHTML =
+      `<svg class="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ` +
+      `stroke-linecap="round" stroke-linejoin="round"><path d="${ICONS[route.icon]}"/></svg>` +
+      `<span>${route.label}</span>` +
+      (route.badge ? `<span class="nav__badge" data-badge="${route.badge}" hidden>0</span>` : '');
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      navigate(route.path);
+    });
+    document.getElementById(route.group === 'ops' ? 'nav-ops' : 'nav-setup').append(el);
+  }
+}
+
+// ------------------------------------------------------------------- theme --
+
+function initTheme() {
+  const saved = (() => {
+    try {
+      return localStorage.getItem('hajiz-theme');
+    } catch {
+      return null;
+    }
+  })();
+  const preferred = saved ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  applyTheme(preferred);
+
+  for (const btn of document.querySelectorAll('[data-theme-set]')) {
+    btn.addEventListener('click', () => applyTheme(btn.dataset.themeSet));
+  }
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  for (const btn of document.querySelectorAll('[data-theme-set]')) {
+    btn.setAttribute('aria-pressed', String(btn.dataset.themeSet === theme));
+  }
+  try {
+    localStorage.setItem('hajiz-theme', theme);
+  } catch {
+    /* private window, or site data blocked - the theme simply will not persist */
+  }
+}
+
+// ------------------------------------------------------------------- chrome -
+
+function bindChrome() {
+  store.subscribe((state) => {
+    const name = document.getElementById('appliance-name');
+    const mode = document.getElementById('appliance-mode');
+    const dot = document.getElementById('appliance-dot');
+
+    name.textContent = state.gateway ?? 'gw-local';
+    const enforcing = state.enforcement === 'enforce';
+    mode.textContent = enforcing ? 'Enforcing' : 'Observing';
+    dot.className = `dot ${enforcing ? 'dot--live' : 'dot--warn'}`;
+
+    for (const badge of document.querySelectorAll('[data-badge]')) {
+      const n = Number(state[badge.dataset.badge] ?? 0);
+      badge.textContent = String(n);
+      badge.hidden = n === 0;
+    }
   });
-  document.getElementById(`esc-${requestId}`)?.remove();
 }
 
-function renderTiles(state) {
-  const m = state.metrics;
-  const observing = state.enforcement === 'observe';
-  const sub = (enforced, observed) => (observing ? observed : enforced);
-  const tile = (label, value, sub = '', cls = '') =>
-    `<div class="tile ${cls}"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
+// --------------------------------------------------------------------- boot -
 
-  tiles.innerHTML = [
-    tile('Requests', m.requests, 'through the gateway'),
-    tile('Pseudonymized', m.byAction.pseudonymize, sub('sent, but sanitized', 'would be sanitized'), 'ok'),
-    tile('Escalated', m.byAction.escalate, sub('a human was asked', 'would be held for a human'), 'warn'),
-    tile('Blocked', m.byAction.block, sub('never left the network', 'would be blocked'), 'bad'),
-    tile('Tier B rate', `${Math.round(m.tierBRate * 100)}%`, 'of prompts needed the judge'),
-    tile('Tier A p50', m.tierA.p50 == null ? '—' : `${m.tierA.p50}`, 'ms, deterministic layer'),
-    tile('Tier A p95', m.tierA.p95 == null ? '—' : `${m.tierA.p95}`, 'ms'),
-    tile('Tier B p95', m.tierB.p95 == null ? '—' : `${m.tierB.p95}`, 'ms, judge only'),
-    tile('Gateway p95', m.total.p95 == null ? '—' : `${m.total.p95}`, 'ms, human review excluded'),
-  ].join('');
-}
-
-function renderModeBanner(state) {
-  const existing = document.getElementById('mode-banner');
-  if (state.enforcement !== 'observe') { existing?.remove(); return; }
-  if (existing) return;
-  const el = document.createElement('div');
-  el.className = 'banner';
-  el.id = 'mode-banner';
-  el.innerHTML =
-    '<h3>Observe mode — nothing is being altered or blocked</h3>' +
-    '<div class="why">Every request below was forwarded to the provider exactly as the employee wrote it. ' +
-    'The decisions shown are what enforcement <b>would</b> have done.</div>';
-  document.getElementById('escalations').before(el);
-}
-
-function renderFooter(state) {
-  document.getElementById('footer-policy').textContent =
-    `policy: ${state.policy.name} v${state.policy.version}${state.policy.error ? ` (error: ${state.policy.error})` : ''}`;
-  const judge = document.getElementById('footer-judge');
-  judge.textContent =
-    `judge: ${state.judge.provider}:${state.judge.model} @ ${state.judge.residency} (${state.judge.host})` +
-    (state.judge.standIn ? ' · STAND-IN for an on-prem model' : '');
-  judge.style.color = state.judge.standIn ? 'var(--warn)' : '';
-  document.getElementById('footer-mode').textContent =
-    `upstream: ${state.mode}${state.showsPlaintext ? ' · dashboard plaintext ON (demo only)' : ''}`;
-}
-
-async function verifyAudit() {
-  const out = document.getElementById('verify-result');
-  out.textContent = 'checking…';
-  const r = await (await fetch('/api/audit/verify')).json();
-  out.textContent = r.ok
-    ? `chain intact over ${r.records} records`
-    : `TAMPERED — chain breaks at record ${r.brokenAt}`;
-  out.style.color = r.ok ? 'var(--ok)' : 'var(--bad)';
-}
-
-const fmt = (n) => (typeof n === 'number' ? n.toFixed(1) : '—');
+initTheme();
+buildNav();
+bindChrome();
+addEventListener('popstate', () => navigate(location.pathname, { replace: true }));
+navigate(location.pathname, { replace: true });
+pullState();
+openEventStream();
