@@ -11,6 +11,24 @@ export const config = {
   port: int(process.env.DLP_PORT, 8080),
 
   /**
+   * A separate port for the console and its API.
+   *
+   * Unset means both share `port`, which is simplest to run and is what the
+   * demo does. On a shared port any application that can send a prompt can
+   * also reach the administrative API, and is one credential away from
+   * rewriting policy. Setting this lets a firewall rule say "employees here,
+   * administrators there" - the console is then unreachable from the network
+   * employee traffic arrives on.
+   */
+  adminPort: process.env.DLP_ADMIN_PORT ? int(process.env.DLP_ADMIN_PORT, 9090) : null,
+
+  /** PEM paths. When set, the console is served over TLS instead of HTTP. */
+  tls: {
+    cert: process.env.DLP_TLS_CERT || null,
+    key: process.env.DLP_TLS_KEY || null,
+  },
+
+  /**
    * live  - forward to the real provider
    * mock  - synthesize an upstream reply locally. No network, no API key.
    *         Exists so the stage demo still works on bad conference wifi.

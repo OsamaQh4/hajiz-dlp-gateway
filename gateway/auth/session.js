@@ -106,3 +106,18 @@ export function sessionFrom(req) {
 
 export const SESSION_COOKIE = COOKIE;
 export const sessionTtlMs = () => TTL_MS;
+
+/**
+ * Throw away the signing key and make a new one.
+ *
+ * Every token ever issued becomes unverifiable, including the one belonging to
+ * whoever asked. That is deliberate: this is the control you reach for when you
+ * believe a session has been stolen, and one that spared the caller would leave
+ * the thief signed in if the thief is the one who pressed it.
+ */
+export function rotateKey() {
+  key = crypto.randomBytes(48);
+  fs.mkdirSync(path.dirname(KEY_FILE), { recursive: true });
+  fs.writeFileSync(KEY_FILE, `${key.toString('base64')}\n`, { mode: 0o600 });
+  return { rotatedAt: new Date().toISOString() };
+}

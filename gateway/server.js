@@ -1,4 +1,5 @@
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import { config, ROOT, isMock, validateConfig, judgeResidency, judgeModel } from './config.js';
@@ -12,6 +13,7 @@ import { verifyChain, readRecords, evidenceBundle } from './audit/audit.js';
 import { vault } from './vault/vault.js';
 import * as accounts from './auth/accounts.js';
 import * as session from './auth/session.js';
+import { applianceState } from './auth/appliance.js';
 
 const DASHBOARD = path.join(ROOT, 'dashboard');
 const MIME = {
@@ -46,7 +48,37 @@ function isOpenPath(pathname) {
   return false;
 }
 
-const server = http.createServer(async (req, res) => {
+/**
+ * Which of the two listeners a path belongs to.
+ *
+ * Only consulted when they are separate. Employee traffic on the admin port,
+ * or a console request on the traffic port, is refused rather than quietly
+ * served: a request arriving on the wrong listener means the deployment is not
+ * what the administrator thinks it is, and answering it anyway would hide that.
+ */
+const isAdminPath = (pathname) => pathname.startsWith('/api/') || !/^\/(v\d+|openai|anthropic)\//.test(pathname);
+
+const handler = (which) => async (req, res) => {
+  if (config.adminPort && config.adminPort !== config.port) {
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const wantsAdmin = isAdminPath(url.pathname);
+    if (url.pathname !== '/health') {
+      if (which === 'traffic' && wantsAdmin) {
+        return sendJson(res, 404, {
+          error: { type: 'wrong_listener', message: `The console is served on port ${config.adminPort}.` },
+        });
+      }
+      if (which === 'admin' && !wantsAdmin) {
+        return sendJson(res, 404, {
+          error: { type: 'wrong_listener', message: `Provider traffic is served on port ${config.port}.` },
+        });
+      }
+    }
+  }
+  return route(req, res);
+};
+
+const route = async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
   try {
@@ -66,6 +98,35 @@ const server = http.createServer(async (req, res) => {
         const rawBody = await readBody(req);
         return await handleProxy({ adapter, req, res, rawBody });
       }
+      if (url.pathname === '/api/appliance/password') {
+        const body = JSON.parse((await readBody(req)) || '{}');
+        // The current password is required even though the caller already holds
+        // a session. A session is evidence that someone signed in once, not
+        // that the person at the keyboard now is the same one - an unattended
+        // console should not be a way to lock its owner out.
+        const who = session.sessionFrom(req);
+        const check = accounts.verify({ username: who?.username, password: body.current });
+        if (!check.ok) {
+          return sendJson(res, 403, { ok: false, error: 'The current password is not correct.' });
+        }
+        const result = accounts.setPassword(body.next);
+        return sendJson(res, result.ok ? 200 : 400, result);
+      }
+
+      if (url.pathname === '/api/appliance/unlock') {
+        const result = accounts.clearLockout();
+        return sendJson(res, result.ok ? 200 : 400, result);
+      }
+
+      if (url.pathname === '/api/appliance/revoke-sessions') {
+        // Rotating the signing key invalidates every token ever issued,
+        // including this one. That is the point: it is what you reach for when
+        // you think a session has been taken, and it must not spare the caller.
+        const result = session.rotateKey();
+        res.setHeader('set-cookie', session.clearCookieHeader({ secure: Boolean(req.socket.encrypted) }));
+        return sendJson(res, 200, { ok: true, ...result });
+      }
+
       if (url.pathname === '/api/policy/rollback') {
         const body = JSON.parse((await readBody(req)) || '{}');
         const text = policyVersions.read(body.seq);
@@ -101,6 +162,7 @@ const server = http.createServer(async (req, res) => {
           raw: safeRead(config.policyPath),
         });
       }
+      if (url.pathname === '/api/appliance') return sendJson(res, 200, applianceState());
       if (url.pathname === '/api/escalations') return sendJson(res, 200, pendingReviews(getPolicy()));
       if (url.pathname === '/api/policy/versions') {
         return sendJson(res, 200, { versions: policyVersions.list(50) });
@@ -138,7 +200,7 @@ const server = http.createServer(async (req, res) => {
   } catch (err) {
     return sendJson(res, 500, { error: { message: err.message } });
   }
-});
+};
 
 /**
  * Transparent proxy for endpoints the gateway does not inspect. Method, path,
@@ -340,27 +402,67 @@ if (configProblem) {
   process.exit(1);
 }
 
-server.on('error', (err) => {
+/**
+ * One listener, or two.
+ *
+ * The console is served over TLS when a certificate is configured. It is worth
+ * the trouble even on an internal network: the session cookie and every prompt
+ * on the monitor page cross it, and "internal" is not a security boundary that
+ * survives contact with a laptop on the wrong VLAN.
+ *
+ * Employee traffic stays on plain HTTP unless separately terminated. Clients
+ * point at this gateway by configuration and a TLS error there breaks the
+ * product for everyone at once - that migration belongs to the deployment
+ * work, not here.
+ */
+function makeServer(which) {
+  if (which === 'admin' && config.tls.cert && config.tls.key) {
+    try {
+      return https.createServer(
+        { cert: fs.readFileSync(config.tls.cert), key: fs.readFileSync(config.tls.key) },
+        handler(which),
+      );
+    } catch (err) {
+      // Refusing to start is right: falling back to HTTP would serve the
+      // console in the clear on a box whose administrator believes otherwise.
+      console.error(`\n  Could not read the TLS certificate or key: ${err.message}`);
+      console.error('  Fix DLP_TLS_CERT / DLP_TLS_KEY, or unset both to serve the console over HTTP.\n');
+      process.exit(1);
+    }
+  }
+  return http.createServer(handler(which));
+}
+
+const separate = Boolean(config.adminPort && config.adminPort !== config.port);
+const server = makeServer(separate ? 'traffic' : 'admin');
+const adminServer = separate ? makeServer('admin') : null;
+
+const onError = (port) => (err) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`\n  Port ${config.port} is already in use — another gateway is probably still running.`);
+    console.error(`\n  Port ${port} is already in use — another gateway is probably still running.`);
     console.error('  Start this one on a different port:');
     console.error(`    PowerShell   $env:DLP_PORT=8090; npm start`);
     console.error(`    bash         DLP_PORT=8090 npm start`);
     console.error('  Or find and stop the process holding it:');
     console.error(
-      `    PowerShell   Get-NetTCPConnection -LocalPort ${config.port} -State Listen | ` +
+      `    PowerShell   Get-NetTCPConnection -LocalPort ${port} -State Listen | ` +
         'ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }\n',
     );
     process.exit(1);
   }
   console.error(`\n  Gateway failed to start: ${err.message}\n`);
   process.exit(1);
-});
+};
+
+server.on('error', onError(config.port));
+adminServer?.on('error', onError(config.adminPort));
 
 server.listen(config.port, () => {
   const p = getPolicy();
+  const scheme = config.tls.cert && config.tls.key ? 'https' : 'http';
+  const consolePort = separate ? config.adminPort : config.port;
   console.log(`\n  Hajiz DLP gateway listening on http://localhost:${config.port}`);
-  console.log(`  dashboard   http://localhost:${config.port}/`);
+  console.log(`  console     ${scheme}://localhost:${consolePort}/${separate ? '' : '   (shares the traffic port)'}`);
   console.log(`  endpoints   POST /v1/messages   POST /v1/chat/completions`);
   console.log(`  policy      ${p.name} (v${p.version})`);
   const jr = judgeResidency();
@@ -374,7 +476,16 @@ server.listen(config.port, () => {
   if (vault.stats().ephemeralKey) {
     console.log('  vault       ephemeral key (set DLP_VAULT_KEY to persist mappings across restarts)');
   }
+  if (!separate) {
+    console.log('  ⚠ admin   the console API shares the port employee traffic arrives on.');
+    console.log('            Set DLP_ADMIN_PORT to move it somewhere they cannot reach.');
+  }
+  if (scheme === 'http') {
+    console.log('  ⚠ tls     the console is served over plain HTTP; the session cookie crosses the network in the clear.');
+  }
   console.log('');
 });
 
-export { server };
+if (adminServer) adminServer.listen(config.adminPort);
+
+export { server, adminServer };
