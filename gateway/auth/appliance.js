@@ -15,6 +15,8 @@ import { config, ROOT } from '../config.js';
 import * as accounts from './accounts.js';
 import { sessionTtlMs } from './session.js';
 import * as versions from '../policy/versions.js';
+import { adapters } from '../proxy/adapters.js';
+import { getPolicy } from '../policy/policy.js';
 
 /** SHA-256 of the DER form of the certificate being served, colon-grouped. */
 export function certificateFingerprint(pem) {
@@ -106,5 +108,15 @@ export function applianceState() {
     },
     audit: { path: config.auditPath },
     mode: { enforcement: config.mode, upstream: config.upstreamMode },
+
+    // The API page is generated from these rather than written beside them.
+    // Documentation that is a second copy of the routing table is a
+    // documentation that goes stale the first time the table changes.
+    api: {
+      routes: adapters.map((a) => ({ name: a.name, route: a.route })),
+      groupHeader: 'x-dlp-group',
+      groups: Object.keys(getPolicy().groups ?? {}),
+      upstreams: config.upstream,
+    },
   };
 }
