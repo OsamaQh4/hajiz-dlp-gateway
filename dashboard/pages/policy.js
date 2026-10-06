@@ -58,7 +58,7 @@ export function renderPolicy(mount, { store }) {
     <div class="split">
       <div>
         <div class="panel">
-          <div class="panel__head"><span class="panel__title">Data classes</span>
+          <div class="panel__head"><span class="panel__title">Data Classes</span>
             <span class="panel__spacer"></span>
             <span class="panel__title" id="po-class-count" style="text-transform:none;letter-spacing:0"></span>
           </div>
@@ -66,14 +66,14 @@ export function renderPolicy(mount, { store }) {
         </div>
 
         <div class="panel">
-          <div class="panel__head"><span class="panel__title">Change history</span></div>
+          <div class="panel__head"><span class="panel__title">Change History</span></div>
           <div class="panel__body panel__body--flush" id="po-versions"></div>
         </div>
       </div>
 
       <div>
         <div class="panel">
-          <div class="panel__head"><span class="panel__title">Detection gate</span></div>
+          <div class="panel__head"><span class="panel__title">Detection Gate</span></div>
           <div class="panel__body" id="po-gate"></div>
         </div>
         <div class="panel">

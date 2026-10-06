@@ -1016,3 +1016,88 @@ tr.hoverable:focus-within .reveal {
   margin: 0;
   line-height: 1.5;
 }
+
+/* ---- sidebar collapse ---------------------------------------------------
+ * The reference app puts this immediately left of the page title, and it is
+ * the right place: it belongs to the chrome, not to the page. Collapsed, the
+ * nav keeps its icons and loses its words, so the shape of the product stays
+ * on screen while a wide table gets another 180 pixels.
+ */
+.iconbtn {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.iconbtn:hover {
+  background: var(--surface-sunken);
+  color: var(--text);
+}
+
+.iconbtn svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* The appliance, always visible. */
+.appliance {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.appliance__mode {
+  color: var(--text-muted);
+}
+
+.app--collapsed {
+  --sidebar-w: 58px;
+}
+
+.app--collapsed .sidebar__name,
+.app--collapsed .navgroup__label,
+.app--collapsed .nav__item span:not(.nav__badge) {
+  display: none;
+}
+
+.app--collapsed .sidebar__brand {
+  justify-content: center;
+  padding: 0;
+}
+
+.app--collapsed .sidebar__scroll {
+  padding: 4px 8px 12px;
+}
+
+.app--collapsed .nav__item {
+  justify-content: center;
+  padding: 8px 0;
+  position: relative;
+}
+
+/* The count still has to be visible when the words are gone - that is the one
+   thing in the nav that means someone is waiting. */
+.app--collapsed .nav__badge {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  margin: 0;
+  min-width: 15px;
+  height: 15px;
+  font-size: 10px;
+}
+
+.app--collapsed .navgroup + .navgroup {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}

@@ -118,3 +118,40 @@ test('degraded heuristic still flags obvious semantic cues', () => {
   assert.ok(found.length > 0);
   assert.ok(found.every((f) => f.tier === 'B'));
 });
+
+
+test('an IBAN span stops at the number, not at the space after it', () => {
+  // The span used to include the trailing whitespace, because \b is satisfied
+  // between a space and the next word. The placeholder then came out glued to
+  // the following word - "IBAN SA03…7519 and mobile" was forwarded to the model
+  // as "IBAN IBAN_1and mobile". Rehydration put it back correctly, so nothing
+  // leaked; the model simply read a mangled prompt.
+  const text = 're IBAN SA0380000000608010167519 and mobile';
+  const hit = scanTierA(text).find((f) => f.cls === 'iban');
+
+  assert.ok(hit);
+  assert.equal(text.slice(hit.start, hit.end), 'SA0380000000608010167519');
+  assert.ok(!/\s$/.test(text.slice(hit.start, hit.end)), 'no trailing whitespace in the span');
+});
+
+test('an IBAN followed by capitals is still found', () => {
+  // Worse than the above and silent: the pattern allows internal whitespace so
+  // an IBAN can be written in groups, which means a greedy match runs on into
+  // the words after it, fails mod-97, and was discarded whole - taking the real
+  // IBAN with it. A leak, not a near miss.
+  for (const text of [
+    'Send to SA0380000000608010167519 AND CONFIRM',
+    'Send to SA03 8000 0000 6080 1016 7519 AND CONFIRM',
+  ]) {
+    const hit = scanTierA(text).find((f) => f.cls === 'iban');
+    assert.ok(hit, `no IBAN found in: ${text}`);
+    assert.match(text.slice(hit.start, hit.end), /^SA03[\s0-9]*7519$/);
+  }
+});
+
+test('retraction does not invent an IBAN out of ordinary capitals', () => {
+  // The retry must not become a way to find something in anything: trimming
+  // back through a reference number should still end with no finding.
+  assert.equal(scanTierA('Order ref AB12 XXXX YYYY ZZZZ QQQQ WWWW today').filter((f) => f.cls === 'iban').length, 0);
+  assert.equal(scanTierA('Pay to SA0380000000608010167518 tomorrow').filter((f) => f.cls === 'iban').length, 0);
+});

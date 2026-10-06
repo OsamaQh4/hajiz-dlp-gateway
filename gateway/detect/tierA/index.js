@@ -23,9 +23,21 @@ export function scanTierA(text, { watchlist = [] } = {}) {
         continue;
       }
       const useGroup = d.group != null && m[d.group] != null;
-      const value = useGroup ? m[d.group] : m[0];
+      const matched = useGroup ? m[d.group] : m[0];
       const start = useGroup ? m.index + m[0].indexOf(m[d.group]) : m.index;
-      if (d.validate && !d.validate(value)) continue;
+
+      let value = matched;
+      if (d.validate && !d.validate(value)) {
+        // A greedy match that fails its checksum used to be thrown away whole,
+        // and for a pattern allowing internal whitespace that is a leak rather
+        // than a near miss: "SA03…7519 AND CONFIRM" overshoots into the words
+        // after it, fails mod-97, and the real IBAN inside is never reported.
+        // Retracting to the last whitespace boundary finds it.
+        const shorter = d.retract ? retractToValid(value, d.validate) : null;
+        if (!shorter) continue;
+        value = shorter;
+      }
+
       raw.push({
         start,
         end: start + value.length,
@@ -39,6 +51,22 @@ export function scanTierA(text, { watchlist = [] } = {}) {
     }
   }
   return resolveOverlaps(raw);
+}
+
+/**
+ * Trim a match back to the last whitespace boundary, repeatedly, until the
+ * validator accepts it. Only prefixes are tried: the detector matched from a
+ * word boundary, so the start is trustworthy and it is the tail that overshot.
+ */
+function retractToValid(value, validate) {
+  let v = value;
+  for (;;) {
+    const cut = v.search(/\s[^\s]*$/);
+    if (cut <= 0) return null;
+    v = v.slice(0, cut);
+    if (!v) return null;
+    if (validate(v)) return v;
+  }
 }
 
 /** Does one span strictly contain the other? */

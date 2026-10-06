@@ -8,12 +8,12 @@
     <link rel="icon" href="/mark.svg" />
   </head>
   <body>
-    <div class="app">
+    <div class="app" id="app">
       <!--
         The sidebar is the whole product in one column. Order is deliberate:
         the four pages someone opens every day first, then the pages they touch
-        once while setting the appliance up, then help. Review queue carries a
-        count because a prompt sitting there has a employee waiting on it.
+        once while setting the appliance up, then help. Review Queue carries a
+        count because a prompt sitting there has a person waiting on it.
       -->
       <aside class="sidebar">
         <div class="sidebar__brand">
@@ -36,21 +36,33 @@
             <div id="nav-setup"></div>
           </nav>
         </div>
-
-        <div class="sidebar__foot">
-          <div class="applianceCard">
-            <span class="applianceCard__name" id="appliance-name">gw-local</span>
-            <span class="applianceCard__mode">
-              <span class="dot" id="appliance-dot"></span>
-              <span id="appliance-mode">connecting…</span>
-            </span>
-          </div>
-        </div>
       </aside>
 
       <div class="main">
         <header class="topbar">
-          <span class="topbar__title" id="page-title">Monitor</span>
+          <!--
+            The top bar used to repeat the page name, which the body heading
+            already says. It carries the appliance instead: on a security
+            appliance the fact that must never be out of sight is which gateway
+            you are on and whether it is enforcing. Mistaking staging for
+            production is the expensive mistake, and it was previously only
+            legible in the sidebar footer.
+          -->
+          <button class="iconbtn" id="sidebar-toggle" type="button"
+                  aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <path d="M9.5 4v16" />
+            </svg>
+          </button>
+
+          <span class="appliance">
+            <span class="dot" id="appliance-dot"></span>
+            <span class="mono" id="appliance-name">gw-local</span>
+            <span class="appliance__mode" id="appliance-mode">connecting…</span>
+          </span>
+
           <span class="topbar__spacer"></span>
           <span class="live">
             <span class="dot" id="conn-dot"></span>

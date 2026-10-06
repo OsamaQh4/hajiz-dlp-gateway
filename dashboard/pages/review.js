@@ -11,7 +11,7 @@
 export function renderReview(mount, { store }) {
   mount.innerHTML = `
     <div class="pagehead__row">
-      <h1 class="pagehead" id="rv-headline">Review queue</h1>
+      <h1 class="pagehead" id="rv-headline">Review Queue</h1>
       <span class="toolbar__sub" id="rv-lede">Nothing is waiting</span>
       <span class="pagehead__spacer"></span>
       <span class="toolbar__sub">Approve sends the prompt as written · refuse stops it and notifies the sender</span>

@@ -103,8 +103,19 @@ export const detectors = [
     cls: 'iban',
     confidence: 0.98,
     priority: 70,
-    regex: /\b[A-Z]{2}\d{2}[\sA-Z0-9]{11,32}\b/g,
+    // The inner class allows whitespace because an IBAN is usually written in
+    // groups of four. It must not END on whitespace, though: `\b` is satisfied
+    // between a trailing space and the next word, so the match used to swallow
+    // the separator and the placeholder came out glued to the following word -
+    // "IBAN SA03…7519 and mobile" was forwarded as "IBAN IBAN_1and mobile".
+    // Harmless on the way back, since rehydration restores the span exactly,
+    // but the model reads the mangled version. Forcing an alphanumeric last
+    // character keeps the same 11-32 length range.
+    regex: /\b[A-Z]{2}\d{2}[\sA-Z0-9]{10,31}[A-Z0-9]\b/g,
     validate: iban,
+    // The match may run on into following capitals; retract to the last
+    // whitespace boundary rather than discarding it, which would leak.
+    retract: true,
   },
   {
     id: 'payment_card',

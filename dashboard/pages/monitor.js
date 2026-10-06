@@ -56,7 +56,7 @@ export function renderMonitor(mount, { store }) {
           <div class="panel__body panel__body--flush" id="mo-detect"></div>
         </div>
         <div class="panel">
-          <div class="panel__head"><span class="panel__title">In force</span></div>
+          <div class="panel__head"><span class="panel__title">In Force</span></div>
           <div class="panel__body panel__body--flush" id="mo-policy"></div>
         </div>
         <div class="panel">

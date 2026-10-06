@@ -18,7 +18,7 @@ import { renderPlaceholder } from './pages/placeholder.js';
 
 const ROUTES = [
   { path: '/', id: 'monitor', label: 'Monitor', group: 'ops', icon: 'activity', render: renderMonitor },
-  { path: '/review', id: 'review', label: 'Review queue', group: 'ops', icon: 'inbox', badge: 'pendingEscalations', render: renderReview },
+  { path: '/review', id: 'review', label: 'Review Queue', group: 'ops', icon: 'inbox', badge: 'pendingEscalations', render: renderReview },
   { path: '/policy', id: 'policy', label: 'Policy', group: 'ops', icon: 'sliders', render: renderPolicy },
   { path: '/audit', id: 'audit', label: 'Audit', group: 'ops', icon: 'ledger' },
   { path: '/deployment', id: 'deployment', label: 'Deployment', group: 'setup', icon: 'route' },
@@ -114,7 +114,7 @@ function show(route) {
   if (current?.stop) current.stop();
   current = null;
 
-  document.getElementById('page-title').textContent = route.label;
+  // The page name is the body heading; the top bar carries the appliance.
   document.title = `${route.label} · Hajiz`;
   for (const el of document.querySelectorAll('.nav__item')) {
     el.toggleAttribute('aria-current', el.dataset.route === route.id);
@@ -134,6 +134,7 @@ function buildNav() {
     el.className = 'nav__item';
     el.href = route.path;
     el.dataset.route = route.id;
+    el.title = route.label;
     el.innerHTML =
       `<svg class="nav__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ` +
       `stroke-linecap="round" stroke-linejoin="round"><path d="${ICONS[route.icon]}"/></svg>` +
@@ -187,7 +188,13 @@ function bindChrome() {
 
     name.textContent = state.gateway ?? 'gw-local';
     const enforcing = state.enforcement === 'enforce';
+    // Observing is amber rather than green on purpose: a gateway that is
+    // watching and changing nothing looks identical to one that is protecting,
+    // and the difference is the whole product.
     mode.textContent = enforcing ? 'Enforcing' : 'Observing';
+    mode.title = enforcing
+      ? 'Policy actions are applied to live traffic.'
+      : 'Prompts are inspected and recorded, and forwarded unchanged.';
     dot.className = `dot ${enforcing ? 'dot--live' : 'dot--warn'}`;
 
     for (const badge of document.querySelectorAll('[data-badge]')) {
@@ -198,9 +205,45 @@ function bindChrome() {
   });
 }
 
+/*
+ * Collapsing the sidebar. The preference is per browser and survives reloads;
+ * if storage is unavailable the toggle still works for the session, because a
+ * control that silently does nothing is worse than one that forgets.
+ */
+function initSidebar() {
+  const app = document.getElementById('app');
+  const btn = document.getElementById('sidebar-toggle');
+
+  const apply = (collapsed) => {
+    app.classList.toggle('app--collapsed', collapsed);
+    btn.setAttribute('aria-expanded', String(!collapsed));
+    btn.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+    btn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+  };
+
+  let collapsed = false;
+  try {
+    collapsed = localStorage.getItem('hajiz-sidebar') === 'collapsed';
+  } catch {
+    /* private window or blocked storage: start expanded */
+  }
+  apply(collapsed);
+
+  btn.addEventListener('click', () => {
+    collapsed = !collapsed;
+    apply(collapsed);
+    try {
+      localStorage.setItem('hajiz-sidebar', collapsed ? 'collapsed' : 'expanded');
+    } catch {
+      /* the preference simply will not persist */
+    }
+  });
+}
+
 // --------------------------------------------------------------------- boot -
 
 initTheme();
+initSidebar();
 buildNav();
 bindChrome();
 addEventListener('popstate', () => navigate(location.pathname, { replace: true }));
