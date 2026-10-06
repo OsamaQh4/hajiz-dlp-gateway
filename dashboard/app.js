@@ -12,6 +12,7 @@
 import { renderMonitor } from './pages/monitor.js';
 import { renderReview } from './pages/review.js';
 import { renderPolicy } from './pages/policy.js';
+import { renderAudit } from './pages/audit.js';
 import { renderPlaceholder } from './pages/placeholder.js';
 
 // ------------------------------------------------------------------ routes --
@@ -20,7 +21,7 @@ const ROUTES = [
   { path: '/', id: 'monitor', label: 'Monitor', group: 'ops', icon: 'activity', render: renderMonitor },
   { path: '/review', id: 'review', label: 'Review Queue', group: 'ops', icon: 'inbox', badge: 'pendingEscalations', render: renderReview },
   { path: '/policy', id: 'policy', label: 'Policy', group: 'ops', icon: 'sliders', render: renderPolicy },
-  { path: '/audit', id: 'audit', label: 'Audit', group: 'ops', icon: 'ledger' },
+  { path: '/audit', id: 'audit', label: 'Audit', group: 'ops', icon: 'ledger', render: renderAudit },
   { path: '/deployment', id: 'deployment', label: 'Deployment', group: 'setup', icon: 'route' },
   { path: '/integrations', id: 'integrations', label: 'Integrations', group: 'setup', icon: 'plug' },
   { path: '/appliance', id: 'appliance', label: 'Appliance', group: 'setup', icon: 'server' },

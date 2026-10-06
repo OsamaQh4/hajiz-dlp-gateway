@@ -79,12 +79,35 @@ export async function verifyChain(file = config.auditPath) {
       return { ok: false, records: n, brokenAt: n };
     }
     const { hash, ...body } = entry;
-    if (body.prev !== prev || sha256(JSON.stringify(body)) !== hash) {
-      return { ok: false, records: n, brokenAt: n };
+    const rehashed = sha256(JSON.stringify(body));
+
+    // Which of the two checks failed is the whole finding, not a detail.
+    // A content mismatch means this record was edited in place after it was
+    // written. A broken link means a record was removed or reordered. They are
+    // different attacks and an auditor acts on them differently, so the
+    // verification says which rather than only that something is wrong.
+    if (rehashed !== hash || body.prev !== prev) {
+      return {
+        ok: false,
+        records: n,
+        brokenAt: n,
+        reason: rehashed !== hash ? 'content' : 'link',
+        detail: {
+          seq: n,
+          requestId: entry.requestId ?? null,
+          ts: entry.ts ?? null,
+          sealedHash: hash,
+          rehashed,
+          expectedPrev: prev,
+          storedPrev: body.prev ?? null,
+          contentMatches: rehashed === hash,
+          linkMatches: body.prev === prev,
+        },
+      };
     }
     prev = hash;
   }
-  return { ok: true, records: n, brokenAt: null };
+  return { ok: true, records: n, brokenAt: null, reason: null, head: prev === GENESIS ? null : prev };
 }
 
 /** Summary of one request, shaped for the log and for the dashboard. */
@@ -115,3 +138,71 @@ export function summarize({ requestId, sessionId, group, route, action, decision
 }
 
 const round = (n) => (typeof n === 'number' ? Math.round(n * 100) / 100 : n);
+
+/**
+ * Read records for the console, newest first.
+ *
+ * The log is append-only and can be large, so this streams rather than
+ * loading the file: an auditor paging through six months of traffic must not
+ * cost the gateway its memory while it is still inspecting prompts.
+ *
+ * Reading backwards from a forward-only stream means collecting the tail, so
+ * `offset + limit` bounds how much is ever held at once.
+ */
+export async function readRecords({ limit = 50, offset = 0, filter = '', action = '' } = {}, file = config.auditPath) {
+  if (!fs.existsSync(file)) return { records: [], total: 0, seqOf: {} };
+
+  const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
+  const keep = [];
+  const want = offset + limit;
+  const needle = filter.trim().toLowerCase();
+  let seq = 0;
+  let total = 0;
+
+  for await (const line of rl) {
+    if (!line.trim()) continue;
+    seq += 1;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (action && entry.action !== action) continue;
+    if (needle) {
+      const hay = [
+        entry.sessionId, entry.group, entry.action, entry.route,
+        Object.keys(entry.byClass ?? {}).join(' '), (entry.detectors ?? []).join(' '),
+      ].join(' ').toLowerCase();
+      if (!hay.includes(needle)) continue;
+    }
+    total += 1;
+    keep.push({ ...entry, seq });
+    // Keep only as much tail as the caller could possibly ask for.
+    if (keep.length > want + 200) keep.splice(0, keep.length - (want + 200));
+  }
+
+  const newestFirst = keep.reverse();
+  return { records: newestFirst.slice(offset, offset + limit), total };
+}
+
+/**
+ * An evidence bundle: the records, the verification that was true when it was
+ * taken, and the chain head. Produced as one object so that what an auditor
+ * carries away cannot be a set of rows whose provenance has been separated
+ * from the proof that they are intact.
+ */
+export async function evidenceBundle({ filter = '', action = '' } = {}, file = config.auditPath) {
+  const verification = await verifyChain(file);
+  const { records, total } = await readRecords({ limit: 100000, offset: 0, filter, action }, file);
+  return {
+    takenAt: new Date().toISOString(),
+    source: file,
+    verification,
+    head: records[0]?.hash ?? null,
+    filter: { text: filter || null, action: action || null },
+    count: records.length,
+    total,
+    records,
+  };
+}

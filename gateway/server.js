@@ -8,7 +8,7 @@ import { bus, metrics } from './lib/events.js';
 import { watchPolicy, getPolicy, policyStatus } from './policy/policy.js';
 import { writePolicy, rollbackPolicy } from './policy/write.js';
 import * as policyVersions from './policy/versions.js';
-import { verifyChain } from './audit/audit.js';
+import { verifyChain, readRecords, evidenceBundle } from './audit/audit.js';
 import { vault } from './vault/vault.js';
 
 const DASHBOARD = path.join(ROOT, 'dashboard');
@@ -70,6 +70,23 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { versions: policyVersions.list(50) });
       }
       if (url.pathname === '/api/audit/verify') return sendJson(res, 200, await verifyChain());
+      if (url.pathname === '/api/audit') {
+        const q = url.searchParams;
+        return sendJson(res, 200, await readRecords({
+          limit: Math.min(200, Number(q.get('limit')) || 50),
+          offset: Math.max(0, Number(q.get('offset')) || 0),
+          filter: q.get('filter') ?? '',
+          action: q.get('action') ?? '',
+        }));
+      }
+      if (url.pathname === '/api/audit/export') {
+        const bundle = await evidenceBundle({ filter: url.searchParams.get('filter') ?? '', action: url.searchParams.get('action') ?? '' });
+        res.writeHead(200, {
+          'content-type': 'application/json',
+          'content-disposition': `attachment; filename="hajiz-evidence-${Date.now()}.json"`,
+        });
+        return res.end(JSON.stringify(bundle, null, 2));
+      }
       if (url.pathname === '/health') return sendJson(res, 200, { ok: true, mode: config.upstreamMode });
       // Provider API paths are proxied; everything else is the dashboard.
       if (/^\/v\d+\//.test(url.pathname)) return await passthrough(req, res, url);
