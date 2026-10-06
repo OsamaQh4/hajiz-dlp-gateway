@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { signIn } from './helpers/console-session.js';
 
 /**
  * Observe mode must detect everything and change nothing.
@@ -21,6 +22,9 @@ const PORT = 8700 + (process.pid % 200);
 const UPSTREAM_PORT = PORT + 1;
 const BASE = `http://127.0.0.1:${PORT}`;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hajiz-observe-'));
+
+/** The console API needs an administrator session; set up in `before`. */
+let admin;
 
 let gateway;
 let upstream;
@@ -49,6 +53,8 @@ before(async () => {
       DLP_UPSTREAM_MODE: 'live',
       DLP_ANTHROPIC_BASE_URL: `http://127.0.0.1:${UPSTREAM_PORT}`,
       DLP_AUDIT_LOG: path.join(tmp, 'audit.jsonl'),
+      DLP_ADMIN_FILE: path.join(tmp, 'admin.json'),
+      DLP_SESSION_KEY_FILE: path.join(tmp, 'session.key'),
       DLP_JUDGE_PROVIDER: 'local',
       DLP_JUDGE_BASE_URL: 'http://127.0.0.1:1/v1', // unreachable on purpose
       DLP_JUDGE_RETRIES: '0',
@@ -60,13 +66,20 @@ before(async () => {
     stdio: 'ignore',
   });
 
+  // Keep the last failure: this loop used to report only "gateway did not
+  // start", which is what a mistake in the sign-in helper looked like too.
+  let lastError = null;
   for (let i = 0; i < 100; i += 1) {
     try {
-      if ((await fetch(`${BASE}/health`)).ok) return;
-    } catch { /* not up yet */ }
+      if ((await fetch(`${BASE}/health`)).ok) {
+        // The console API needs an administrator session; sign in once here.
+        admin = await signIn(BASE);
+        return;
+      }
+    } catch (err) { lastError = err; }
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error('gateway did not start');
+  throw new Error(`gateway did not start: ${lastError?.message ?? 'no response on /health'}`);
 });
 
 after(() => {
@@ -95,7 +108,7 @@ test('observe mode forwards the prompt byte-for-byte, unmodified', async () => {
 });
 
 test('...while still detecting and recording what it saw', async () => {
-  const state = await (await fetch(`${BASE}/api/state`)).json();
+  const state = await (await admin.fetch(`${BASE}/api/state`)).json();
   const event = state.events.filter((e) => e.kind === 'request').pop();
 
   assert.equal(event.observed, true);
@@ -116,7 +129,7 @@ test('a request that would be BLOCKED still goes through in observe mode', async
   assert.equal(received.length, 1);
   assert.ok(received[0].body.includes('sk-ant-api03'), 'the secret is forwarded - that is the point of monitoring');
 
-  const state = await (await fetch(`${BASE}/api/state`)).json();
+  const state = await (await admin.fetch(`${BASE}/api/state`)).json();
   const event = state.events.filter((e) => e.kind === 'request').pop();
   assert.equal(event.wouldHave, 'block', 'but the log records that enforcement would have blocked it');
 });
@@ -155,6 +168,6 @@ test('passthrough preserves the method and query string', async () => {
 });
 
 test('the audit chain stays intact across observed and passed-through traffic', async () => {
-  const result = await (await fetch(`${BASE}/api/audit/verify`)).json();
+  const result = await (await admin.fetch(`${BASE}/api/audit/verify`)).json();
   assert.equal(result.ok, true);
 });

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { signIn } from './helpers/console-session.js';
 
 /**
  * End-to-end through the real HTTP server in mock-upstream mode: no API key, no
@@ -17,6 +18,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hajiz-e2e-'));
 
 let child;
+let admin;
 
 before(async () => {
   child = spawn(process.execPath, [path.join(root, 'gateway', 'server.js')], {
@@ -25,6 +27,8 @@ before(async () => {
       DLP_PORT: String(PORT),
       DLP_UPSTREAM_MODE: 'mock',
       DLP_AUDIT_LOG: path.join(tmp, 'audit.jsonl'),
+      DLP_ADMIN_FILE: path.join(tmp, 'admin.json'),
+      DLP_SESSION_KEY_FILE: path.join(tmp, 'session.key'),
       DLP_ESCALATION_TIMEOUT_MS: '1500',
       // Pin the judge explicitly and strip every ambient credential. Inheriting
       // the shell's keys would make the suite spend money and depend on the
@@ -40,16 +44,23 @@ before(async () => {
     stdio: 'ignore',
   });
 
+  // Keep the last failure: this loop used to report only "gateway did not
+  // start", which is what a mistake in the sign-in helper looked like too.
+  let lastError = null;
   for (let i = 0; i < 100; i += 1) {
     try {
       const r = await fetch(`${BASE}/health`);
-      if (r.ok) return;
-    } catch {
-      /* not up yet */
+      if (r.ok) {
+        // The console API needs an administrator session; sign in once here.
+        admin = await signIn(BASE);
+        return;
+      }
+    } catch (err) {
+      lastError = err;
     }
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error('gateway did not start');
+  throw new Error(`gateway did not start: ${lastError?.message ?? 'no response on /health'}`);
 });
 
 after(() => child?.kill());
@@ -141,13 +152,13 @@ test('the escalation queue holds a request until a reviewer answers', async () =
   // Find the pending escalation and approve it, the way the dashboard does.
   let requestId = null;
   for (let i = 0; i < 40 && !requestId; i += 1) {
-    const state = await (await fetch(`${BASE}/api/state`)).json();
+    const state = await (await admin.fetch(`${BASE}/api/state`)).json();
     requestId = state.events.find((e) => e.kind === 'escalation_pending')?.requestId ?? null;
     if (!requestId) await new Promise((r) => setTimeout(r, 50));
   }
   assert.ok(requestId, 'an escalation should have been raised');
 
-  await fetch(`${BASE}/api/escalations/${requestId}`, {
+  await admin.fetch(`${BASE}/api/escalations/${requestId}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ approved: true, reviewer: 'test-analyst' }),
@@ -159,7 +170,7 @@ test('the escalation queue holds a request until a reviewer answers', async () =
   // The reviewer's thinking time must not be counted as gateway latency, and
   // the escalation must still be visible even though the request finally
   // completed as a pseudonymized one.
-  const state = await (await fetch(`${BASE}/api/state`)).json();
+  const state = await (await admin.fetch(`${BASE}/api/state`)).json();
   const record = state.events.filter((e) => e.kind === 'request' && e.escalated).pop();
   assert.ok(record, 'the completed request should be flagged as escalated');
   assert.equal(record.action, 'pseudonymize');
@@ -177,7 +188,7 @@ test('an unanswered escalation times out closed - the prompt is not sent', async
 });
 
 test('the audit log verifies after a full run', async () => {
-  const result = await (await fetch(`${BASE}/api/audit/verify`)).json();
+  const result = await (await admin.fetch(`${BASE}/api/audit/verify`)).json();
   assert.equal(result.ok, true);
   assert.ok(result.records > 0);
 });

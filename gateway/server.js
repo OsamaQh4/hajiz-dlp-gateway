@@ -10,6 +10,8 @@ import { writePolicy, rollbackPolicy } from './policy/write.js';
 import * as policyVersions from './policy/versions.js';
 import { verifyChain, readRecords, evidenceBundle } from './audit/audit.js';
 import { vault } from './vault/vault.js';
+import * as accounts from './auth/accounts.js';
+import * as session from './auth/session.js';
 
 const DASHBOARD = path.join(ROOT, 'dashboard');
 const MIME = {
@@ -20,10 +22,44 @@ const MIME = {
   '.json': 'application/json',
 };
 
+/**
+ * Which paths the console's sign-in protects.
+ *
+ * Deliberately a short allow-list of what stays open, rather than a list of
+ * what is closed. Getting this backwards is how an appliance ends up with an
+ * unauthenticated admin endpoint nobody remembered to add to the list.
+ *
+ * Employee traffic is open and must stay that way. The proxy routes are the
+ * product: an employee's client sends a prompt and has no console session, no
+ * cookie, and no way to obtain one. Putting the administrator's login in front
+ * of them would not secure anything - it would stop the gateway working.
+ */
+function isOpenPath(pathname) {
+  if (/^\/v\d+\//.test(pathname)) return true;          // provider API traffic
+  if (pathname.startsWith('/openai/')) return true;       // OpenAI-shaped traffic
+  if (pathname.startsWith('/anthropic/')) return true;    // Anthropic-shaped traffic
+  if (pathname === '/health') return true;                // load balancers
+  if (pathname.startsWith('/api/auth/')) return true;     // signing in, by definition
+  // The console's own files. They carry no data; every byte of that is behind
+  // /api, and the page shows a sign-in form when the session is missing.
+  if (!pathname.startsWith('/api/')) return true;
+  return false;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
   try {
+    if (url.pathname.startsWith('/api/auth/')) {
+      return await handleAuth({ req, res, url });
+    }
+
+    if (!isOpenPath(url.pathname) && !session.sessionFrom(req)) {
+      return sendJson(res, 401, {
+        error: { type: 'not_signed_in', message: 'This endpoint needs an administrator session.' },
+      });
+    }
+
     if (req.method === 'POST') {
       const adapter = adapterForPath(url.pathname);
       if (adapter) {
@@ -186,6 +222,73 @@ function sseEvents(req, res) {
     clearInterval(ping);
     bus.off('event', onEvent);
   });
+}
+
+/**
+ * Signing in, signing out, and telling the console which of those it is.
+ *
+ * Failures are deliberately vague about which half was wrong: with exactly one
+ * account, "no such user" and "wrong password" are the same fact, and saying
+ * which would only help someone guessing.
+ */
+async function handleAuth({ req, res, url }) {
+  const secure = Boolean(req.socket.encrypted);
+
+  if (req.method === 'GET' && url.pathname === '/api/auth/status') {
+    const s = session.sessionFrom(req);
+    return sendJson(res, 200, {
+      provisioned: accounts.isProvisioned(),
+      signedIn: Boolean(s),
+      username: s?.username ?? null,
+      expiresAt: s?.exp ?? null,
+    });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/auth/provision') {
+    // Only ever available on an appliance that has no administrator yet.
+    if (accounts.isProvisioned()) {
+      return sendJson(res, 409, { ok: false, error: 'an administrator already exists' });
+    }
+    const body = JSON.parse((await readBody(req)) || '{}');
+    const result = accounts.provision({ username: body.username || 'admin', password: body.password });
+    if (!result.ok) return sendJson(res, 400, result);
+
+    const issued = session.issue({ username: result.username });
+    res.setHeader('set-cookie', session.cookieHeader(issued.token, { secure }));
+    return sendJson(res, 200, { ok: true, username: result.username, expiresAt: issued.expiresAt });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/auth/login') {
+    const body = JSON.parse((await readBody(req)) || '{}');
+    const result = accounts.verify({ username: body.username, password: body.password });
+
+    if (!result.ok) {
+      const status = result.reason === 'locked' ? 429 : 401;
+      return sendJson(res, status, {
+        ok: false,
+        reason: result.reason,
+        lockedUntil: result.lockedUntil ?? null,
+        remaining: result.remaining ?? null,
+        error:
+          result.reason === 'locked'
+            ? 'Too many failed attempts. Try again later, or reset the password from a shell on the appliance.'
+            : result.reason === 'not_provisioned'
+              ? 'This appliance has no administrator yet.'
+              : 'That username and password do not match.',
+      });
+    }
+
+    const issued = session.issue({ username: result.username });
+    res.setHeader('set-cookie', session.cookieHeader(issued.token, { secure }));
+    return sendJson(res, 200, { ok: true, username: result.username, expiresAt: issued.expiresAt });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
+    res.setHeader('set-cookie', session.clearCookieHeader({ secure }));
+    return sendJson(res, 200, { ok: true });
+  }
+
+  return sendJson(res, 404, { error: { type: 'not_found', message: 'no such auth route' } });
 }
 
 function serveStatic(pathname, res) {

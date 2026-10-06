@@ -14,6 +14,7 @@ import { renderReview } from './pages/review.js';
 import { renderPolicy } from './pages/policy.js';
 import { renderAudit } from './pages/audit.js';
 import { renderPlaceholder } from './pages/placeholder.js';
+import { renderSignIn } from './pages/signin.js';
 
 // ------------------------------------------------------------------ routes --
 
@@ -63,12 +64,29 @@ export const store = {
 async function pullState() {
   try {
     const res = await fetch('/api/state');
+    if (res.status === 401) return signOutToForm();
     if (!res.ok) throw new Error(`state ${res.status}`);
     store.set(await res.json());
     setConnection(true);
   } catch {
     setConnection(false);
   }
+}
+
+/**
+ * Show the sign-in form over the whole window.
+ *
+ * The shell is replaced rather than hidden: a console still holding the last
+ * page's numbers behind a login box invites someone to read figures that may
+ * already be stale, and on a security appliance a stale number read as current
+ * is worse than no number.
+ */
+function signOutToForm() {
+  closeEventStream();
+  document.body.innerHTML = '<div id="auth-root"></div>';
+  renderSignIn(document.getElementById('auth-root'), {
+    onSignedIn: () => window.location.reload(),
+  });
 }
 
 function setConnection(ok) {
@@ -85,10 +103,20 @@ function setConnection(ok) {
  * small, it keeps one source of truth, and a page never has to merge a partial
  * update into a list it is already showing.
  */
+let eventSource = null;
+let streamClosed = false;
+
+function closeEventStream() {
+  streamClosed = true;
+  eventSource?.close();
+}
+
 function openEventStream() {
   let source;
   const connect = () => {
+    if (streamClosed) return;
     source = new EventSource('/api/events');
+    eventSource = source;
     source.onmessage = () => pullState();
     source.onopen = () => setConnection(true);
     source.onerror = () => {
@@ -243,11 +271,36 @@ function initSidebar() {
 
 // --------------------------------------------------------------------- boot -
 
-initTheme();
-initSidebar();
-buildNav();
-bindChrome();
-addEventListener('popstate', () => navigate(location.pathname, { replace: true }));
-navigate(location.pathname, { replace: true });
-pullState();
-openEventStream();
+/*
+ * Nothing starts until the appliance says there is a session. The console's
+ * files are served to anyone who can reach the port - they hold no data - but
+ * every byte of data is behind /api, and the gateway refuses those without a
+ * session whatever this page decides to render.
+ */
+async function boot() {
+  let status;
+  try {
+    status = await fetch('/api/auth/status').then((r) => r.json());
+  } catch {
+    // The gateway is unreachable. Showing the form is the honest state: there
+    // is no session to speak of and nothing to display behind it.
+    status = { signedIn: false };
+  }
+
+  if (!status.signedIn) {
+    document.body.innerHTML = '<div id="auth-root"></div>';
+    renderSignIn(document.getElementById('auth-root'), { onSignedIn: () => window.location.reload() });
+    return;
+  }
+
+  initTheme();
+  initSidebar();
+  buildNav();
+  bindChrome();
+  addEventListener('popstate', () => navigate(location.pathname, { replace: true }));
+  navigate(location.pathname, { replace: true });
+  pullState();
+  openEventStream();
+}
+
+boot();
